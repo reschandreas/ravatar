@@ -14,3 +14,6 @@ image = "0.25.0"
 filetime = "0.2.23"
 actix-web = "4.5.1"
 serde = { version = "1.0.197", features = ["derive"] }
+env_logger = "0.11.3"
+rayon = "1.10.0"
+anyhow = "1.0.81"
