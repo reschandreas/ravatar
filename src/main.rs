@@ -67,7 +67,7 @@ fn read_config() -> Config {
     let extension = env::var("EXTENSION").unwrap_or("jpeg".into());
     let host = env::var("HOST").unwrap_or("0.0.0.0".into());
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
-    let log_level = env::var("LOG_LEVEL").unwrap_or("debug".into());
+    let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
     Config {
         host,
         port,
@@ -250,6 +250,7 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: Config) -> notify::Result<
         match res {
             Ok(event) => match event.kind {
                 notify::EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => {
+                    log::info!("a file was renamed");
                     if !path.as_ref().exists() {
                         evacuate_image(&event.paths[0], config.clone());
                     } else {
