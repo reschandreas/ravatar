@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Instant;
 use std::{env, fs};
 
-use crate::structs::{Config, ImageRequest};
+use crate::structs::{AppState, Config, ImageRequest};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::web::Query;
@@ -19,14 +19,9 @@ use image::io::Reader as ImageReader;
 use md5::Md5;
 use notify::event::DataChange::Content;
 use notify::event::{ModifyKind, RenameMode};
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, PollWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
-
-#[derive(Clone)]
-struct AppState {
-    config: Config,
-}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -57,7 +52,7 @@ async fn main() -> std::io::Result<()> {
                 .service(hash),
         )
     })
-    .bind(("127.0.0.1", port))?
+    .bind((config.host, port))?
     .run()
     .await
 }
@@ -69,10 +64,12 @@ fn read_config() -> Config {
     let prefix: String = env::var("PATH_PREFIX").unwrap_or("/avatar".into());
     let raw = env::var("RAW_PATH").unwrap_or("./raw".into());
     let images = env::var("IMAGES_PATH").unwrap_or("./images".into());
-    let extension = env::var("EXTENSION").unwrap_or("png".into());
+    let extension = env::var("EXTENSION").unwrap_or("jpeg".into());
+    let host = env::var("HOST").unwrap_or("0.0.0.0".into());
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
     let log_level = env::var("LOG_LEVEL").unwrap_or("debug".into());
     Config {
+        host,
         port,
         prefix,
         images,
@@ -114,7 +111,7 @@ fn read_default(query: Query<ImageRequest>) -> String {
     default
 }
 
-fn read_forcedefault(query: Query<ImageRequest>) -> bool {
+fn read_force_default(query: Query<ImageRequest>) -> bool {
     if let Some(force) = &query.f {
         return force.eq(&'y');
     }
@@ -140,7 +137,7 @@ async fn avatar(
         vec![cache_dir.clone(), size.to_string(), mail_hash.clone()],
         Some(config.extension.clone()),
     );
-    if !path.exists() || read_forcedefault(query) {
+    if !path.exists() || read_force_default(query) {
         log::debug!("not found {mail_hash}, size {size}, serving {default}");
         match default.as_str() {
             "404" => {
@@ -227,10 +224,10 @@ fn watch_directory(path: String, config: Config) {
     });
 }
 
-fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
+fn async_watcher() -> notify::Result<(PollWatcher, Receiver<notify::Result<Event>>)> {
     let (mut tx, rx) = channel(1);
 
-    let watcher = RecommendedWatcher::new(
+    let watcher = PollWatcher::new(
         move |res| {
             futures::executor::block_on(async {
                 tx.send(res).await.unwrap();
@@ -253,22 +250,22 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: Config) -> notify::Result<
         match res {
             Ok(event) => match event.kind {
                 notify::EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => {
-                    log::debug!("rename event");
-                    if !Path::new(path.as_ref()).exists() {
+                    if !path.as_ref().exists() {
                         evacuate_image(&event.paths[0], config.clone());
                     } else {
                         processing_image(&event.paths[0], config.clone(), false);
                     }
                 }
                 notify::EventKind::Create(_) => {
-                    log::debug!("create event");
+                    log::info!("found a new file");
                     processing_image(&event.paths[0], config.clone(), false);
                 }
                 notify::EventKind::Modify(ModifyKind::Data(Content)) => {
-                    log::debug!("modify event");
+                    log::info!("a file was updated");
                     update_image(&event.paths[0], config.clone());
                 }
                 notify::EventKind::Remove(_) => {
+                    log::info!("a file was removed");
                     evacuate_image(&event.paths[0], config.clone());
                 }
                 _ => {}
@@ -309,6 +306,7 @@ fn handle_image(source: &Path, config: Config) {
 
         let before = Instant::now();
         let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
+        log::info!("processing {}", source.to_str().unwrap());
         sizes.par_iter().for_each(|size| {
             let binding = build_path(vec![config.images.clone(), size.to_string()], None);
             let size_path = binding.as_path();
@@ -328,14 +326,19 @@ fn handle_image(source: &Path, config: Config) {
                 return;
             }
             let link_path = binding.as_path();
-            log::info!("resizing {}", cache_path.to_str().unwrap());
             resize_image(source, cache_path, *size, Some(link_path), config.clone());
             log::debug!("resized {} in {:?}", filename, before.elapsed());
         });
     }
 }
 
-fn resize_image(source: &Path, destination: &Path, size: u32, link_path: Option<&Path>, config: Config) {
+fn resize_image(
+    source: &Path,
+    destination: &Path,
+    size: u32,
+    link_path: Option<&Path>,
+    config: Config,
+) {
     if !Path::exists(source) {
         return;
     }
@@ -343,7 +346,10 @@ fn resize_image(source: &Path, destination: &Path, size: u32, link_path: Option<
     log::debug!("resizing {}", source.to_str().unwrap());
     img.expect("Cant read image")
         .resize_to_fill(size, size, image::imageops::FilterType::Lanczos3)
-        .save_with_format(destination, image::ImageFormat::from_extension(config.extension).unwrap())
+        .save_with_format(
+            destination,
+            image::ImageFormat::from_extension(config.extension).unwrap(),
+        )
         .unwrap();
     if let Some(link_path) = link_path {
         fs::hard_link(destination, link_path).unwrap();
@@ -369,9 +375,11 @@ fn needs_update(raw: &Path, processed: &Path) -> bool {
 }
 
 fn update_image(path: &Path, config: Config) {
-    log::debug!("updating {} {}",
+    log::debug!(
+        "updating {} {}",
         path.to_str().unwrap(),
-        get_full_filename(path).starts_with('.'));
+        get_full_filename(path).starts_with('.')
+    );
     if get_full_filename(path).starts_with('.') || !Path::exists(Path::new(&path)) {
         return;
     }
@@ -380,26 +388,36 @@ fn update_image(path: &Path, config: Config) {
 }
 
 fn evacuate_image(path: &Path, config: Config) {
-    let filename = get_full_filename(path);
-    if filename.starts_with('.') {
-        return;
-    }
-    if let Some(extension) = get_extension(&filename) {
+    log::info!("evacuating {}", path.to_str().unwrap());
+    if let Some(filename) = get_filename(path) {
+        if filename.starts_with('.') || !get_full_filename(path).ends_with(&config.extension) {
+            return;
+        }
         let md5_hash = md5(&filename);
         let sha256 = sha256(&filename);
+        println!("gotta clean up {}", md5_hash);
+        println!("gotta clean up {}", sha256);
         let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
-        sizes.par_iter().for_each(|size| {
+        sizes.iter().for_each(|size| {
             let size_path = build_path(vec![config.images.clone(), size.to_string()], None);
             let cache_path = build_path(
                 vec![size_path.to_str().unwrap().to_string(), md5_hash.clone()],
-                Some(extension.to_string()),
+                Some(config.extension.clone()),
             );
             let link_path = build_path(
                 vec![size_path.to_str().unwrap().to_string(), sha256.clone()],
-                Some(extension.to_string()),
+                Some(config.extension.clone()),
             );
-            fs::remove_file(cache_path).unwrap();
-            fs::remove_file(link_path).unwrap();
+            if link_path.as_path().exists() {
+                fs::remove_file(link_path).expect("Could not delete link");
+            } else {
+                log::info!("link not found {}", link_path.to_str().unwrap());
+            }
+            if cache_path.as_path().exists() {
+                fs::remove_file(cache_path).expect("Could not delete file");
+            } else {
+                log::info!("file not found {}", cache_path.to_str().unwrap());
+            }
         });
     }
 }
@@ -415,7 +433,7 @@ fn get_full_filename(path: &Path) -> String {
 
 fn get_filename(path: &Path) -> Option<String> {
     let filename = get_full_filename(path);
-    if let Some(extension) = get_extension(&filename) {
+    if let Some(extension) = get_extension(&path) {
         return Some(filename.replace(format!(".{extension}").as_str(), ""));
     }
     None
@@ -439,8 +457,8 @@ fn create_directory(path: &Path) {
     fs::create_dir_all(path).expect("Could not create directory");
 }
 
-fn get_extension(path: &str) -> Option<String> {
-    let extension = Path::new(&path).extension();
+fn get_extension(path: &Path) -> Option<String> {
+    let extension = path.extension();
     if let Some(extension) = extension {
         return Some(extension.to_str().unwrap().to_string());
     }
