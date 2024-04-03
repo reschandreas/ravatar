@@ -1,4 +1,4 @@
-name: create and push docker images
+name: build
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ permissions:
   packages: write
 
 jobs:
-  build-and-push-image:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
