@@ -250,6 +250,7 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: Config) -> notify::Result<
         match res {
             Ok(event) => match event.kind {
                 notify::EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => {
+                    log::info!("a file was renamed");
                     if !path.as_ref().exists() {
                         evacuate_image(&event.paths[0], config.clone());
                     } else {
