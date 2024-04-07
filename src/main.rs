@@ -29,16 +29,16 @@ async fn main() -> std::io::Result<()> {
     let port: u16 = config.port;
     let cloned_config = config.clone();
     thread::spawn(move || {
-        let raw_path = cloned_config.raw.clone();
-        watch_directory(raw_path, cloned_config.clone());
-    });
-    let cloned_config = config.clone();
-    thread::spawn(move || {
-        log::debug!("starting resizing");
+        log::info!("starting resizing");
         let binding = cloned_config.raw.clone();
         let raw_path = Path::new(&binding);
         resize_default(cloned_config.clone());
         process_directory(raw_path, cloned_config.clone());
+    });
+    let cloned_config = config.clone();
+    thread::spawn(move || {
+        let raw_path = cloned_config.raw.clone();
+        watch_directory(raw_path, cloned_config.clone());
     });
     let state = AppState {
         config: config.clone(),
@@ -255,6 +255,7 @@ fn resize_image(
     config: Config,
 ) {
     if !Path::exists(source) {
+        log::info!("source does not exist {}", source.to_str().unwrap());
         return;
     }
     let img = ImageReader::open(source).unwrap().decode();
