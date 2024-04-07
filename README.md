@@ -8,7 +8,7 @@ project is written in Rust and used [surrogator](https://github.com/cweiske/surr
 
 ## Usage
 
-The server is very simple to use and not designed to be used in a container, which is ready to use, or k8s, thus it is not featuring any configuration
+The server is very simple to use and not designed to be used directly, but in a container, which is ready to use, or k8s, thus it is not featuring any configuration
 via CLI, we only support environment variables.
 
 #### Run locally
