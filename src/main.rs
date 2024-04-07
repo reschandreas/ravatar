@@ -1,8 +1,8 @@
 mod structs;
+mod image_processor;
 
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::Instant;
 use std::{env, fs};
 
 use crate::structs::{AppState, Config, ImageRequest};
@@ -20,8 +20,8 @@ use md5::Md5;
 use notify::event::DataChange::Content;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, PollWatcher, RecursiveMode, Watcher};
-use rayon::prelude::*;
 use sha2::{Digest, Sha256};
+use crate::image_processor::{evacuate_image, process_directory, processing_image, resize_default, update_image};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -29,16 +29,16 @@ async fn main() -> std::io::Result<()> {
     let port: u16 = config.port;
     let cloned_config = config.clone();
     thread::spawn(move || {
-        let raw_path = cloned_config.raw.clone();
-        watch_directory(raw_path, cloned_config.clone());
-    });
-    let cloned_config = config.clone();
-    thread::spawn(move || {
-        log::debug!("starting resizing");
+        log::info!("starting resizing");
         let binding = cloned_config.raw.clone();
         let raw_path = Path::new(&binding);
         resize_default(cloned_config.clone());
         process_directory(raw_path, cloned_config.clone());
+    });
+    let cloned_config = config.clone();
+    thread::spawn(move || {
+        let raw_path = cloned_config.raw.clone();
+        watch_directory(raw_path, cloned_config.clone());
     });
     let state = AppState {
         config: config.clone(),
@@ -163,39 +163,6 @@ async fn avatar(
         .body(image_content)
 }
 
-fn resize_default(config: Config) {
-    let binding = build_path(
-        vec![config.images.clone(), 512.to_string(), "mm".to_string()],
-        Some(config.extension.clone()),
-    );
-    let path = binding.as_path();
-    let binding = build_path(
-        vec!["default".to_string(), "mm".to_string()],
-        Some(config.extension.clone()),
-    );
-    let default = binding.as_path();
-    if !needs_update(default, path) {
-        return;
-    }
-    let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
-    let extension = config.extension.clone();
-    sizes.par_iter().for_each(|size| {
-        let image_path = config.images.clone();
-        create_directory(build_path(vec![image_path.clone(), size.to_string()], None).as_path());
-        let binding = build_path(
-            vec![image_path.clone(), size.to_string(), "mm".to_string()],
-            Some(extension.clone()),
-        );
-        let path = binding.as_path();
-        let binding = build_path(
-            vec!["default".to_string(), "mm.".to_string()],
-            Some(extension.clone()),
-        );
-        let default_path = binding.as_path();
-        resize_image(default_path, path, *size, None, config.clone());
-    });
-}
-
 fn sha256(filename: &str) -> String {
     Sha256::digest(filename.as_bytes())
         .iter()
@@ -278,60 +245,7 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: Config) -> notify::Result<
     Ok(())
 }
 
-fn process_directory(directory: &Path, config: Config) {
-    for path in fs::read_dir(directory).unwrap().flatten() {
-        processing_image(&path.path(), config.clone(), false);
-    }
-}
 
-fn processing_image(path: &Path, config: Config, force: bool) {
-    create_directory(Path::new(&config.images));
-    if let Some(filename) = get_filename(path) {
-        let binding = build_path(
-            vec![config.images.to_string(), 512.to_string(), filename],
-            Some(config.extension.clone()),
-        );
-        let image_path = binding.as_path();
-        if !force && !needs_update(path, image_path) {
-            return;
-        }
-
-        handle_image(path, config.clone());
-    }
-}
-
-fn handle_image(source: &Path, config: Config) {
-    if let Some(filename) = get_filename(source) {
-        let md5_hash = md5(&filename);
-        let sha256 = sha256(&filename);
-
-        let before = Instant::now();
-        let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
-        log::info!("processing {}", source.to_str().unwrap());
-        sizes.par_iter().for_each(|size| {
-            let binding = build_path(vec![config.images.clone(), size.to_string()], None);
-            let size_path = binding.as_path();
-            create_directory(size_path);
-            let binding = build_path(
-                vec![config.images.clone(), size.to_string(), md5_hash.clone()],
-                Some(config.extension.clone()),
-            );
-
-            let cache_path = binding.as_path();
-            let binding = build_path(
-                vec![config.images.clone(), size.to_string(), sha256.clone()],
-                Some(config.extension.clone()),
-            );
-
-            if !needs_update(source, cache_path) {
-                return;
-            }
-            let link_path = binding.as_path();
-            resize_image(source, cache_path, *size, Some(link_path), config.clone());
-            log::debug!("resized {} in {:?}", filename, before.elapsed());
-        });
-    }
-}
 
 fn resize_image(
     source: &Path,
@@ -341,11 +255,12 @@ fn resize_image(
     config: Config,
 ) {
     if !Path::exists(source) {
+        log::info!("source does not exist {}", source.to_str().unwrap());
         return;
     }
     let img = ImageReader::open(source).unwrap().decode();
     log::debug!("resizing {}", source.to_str().unwrap());
-    img.expect("Cant read image")
+    img.expect("Can't read image")
         .resize_to_fill(size, size, image::imageops::FilterType::Lanczos3)
         .save_with_format(
             destination,
@@ -373,54 +288,6 @@ fn needs_update(raw: &Path, processed: &Path) -> bool {
     let processed_metadata = fs::metadata(processed).unwrap();
     let processed_mtime = FileTime::from_last_modification_time(&processed_metadata);
     raw_mtime > processed_mtime
-}
-
-fn update_image(path: &Path, config: Config) {
-    log::debug!(
-        "updating {} {}",
-        path.to_str().unwrap(),
-        get_full_filename(path).starts_with('.')
-    );
-    if get_full_filename(path).starts_with('.') || !Path::exists(Path::new(&path)) {
-        return;
-    }
-    log::debug!("updating {}", path.to_str().unwrap());
-    processing_image(path, config, true);
-}
-
-fn evacuate_image(path: &Path, config: Config) {
-    log::info!("evacuating {}", path.to_str().unwrap());
-    if let Some(filename) = get_filename(path) {
-        if filename.starts_with('.') || !get_full_filename(path).ends_with(&config.extension) {
-            return;
-        }
-        let md5_hash = md5(&filename);
-        let sha256 = sha256(&filename);
-        println!("gotta clean up {}", md5_hash);
-        println!("gotta clean up {}", sha256);
-        let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
-        sizes.iter().for_each(|size| {
-            let size_path = build_path(vec![config.images.clone(), size.to_string()], None);
-            let cache_path = build_path(
-                vec![size_path.to_str().unwrap().to_string(), md5_hash.clone()],
-                Some(config.extension.clone()),
-            );
-            let link_path = build_path(
-                vec![size_path.to_str().unwrap().to_string(), sha256.clone()],
-                Some(config.extension.clone()),
-            );
-            if link_path.as_path().exists() {
-                fs::remove_file(link_path).expect("Could not delete link");
-            } else {
-                log::info!("link not found {}", link_path.to_str().unwrap());
-            }
-            if cache_path.as_path().exists() {
-                fs::remove_file(cache_path).expect("Could not delete file");
-            } else {
-                log::info!("file not found {}", cache_path.to_str().unwrap());
-            }
-        });
-    }
 }
 
 fn get_full_filename(path: &Path) -> String {
