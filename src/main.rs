@@ -9,7 +9,7 @@ use crate::structs::{AppState, Config, ImageRequest};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::web::Query;
-use actix_web::{get, web, App, HttpResponse, HttpServer};
+use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use filetime::FileTime;
 use futures::{
     channel::mpsc::{channel, Receiver},
@@ -45,7 +45,9 @@ async fn main() -> std::io::Result<()> {
     };
     env_logger::init_from_env(env_logger::Env::new().default_filter_or(config.log_level.clone()));
     HttpServer::new(move || {
-        App::new().wrap(Logger::default()).service(
+        App::new().wrap(Logger::default())
+            .service(web::scope("/").service(healthz))
+            .service(
             web::scope(&config.prefix)
                 .app_data(web::Data::new(state.clone()))
                 .service(avatar)
@@ -77,6 +79,11 @@ fn read_config() -> Config {
         extension,
         log_level,
     }
+}
+
+#[get("/healthz")]
+async fn healthz() -> impl Responder {
+    "OK"
 }
 
 #[get("/hash/{hash}")]
