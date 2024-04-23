@@ -46,7 +46,7 @@ async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or(config.log_level.clone()));
     HttpServer::new(move || {
         App::new().wrap(Logger::default())
-            .service(web::scope("/").service(healthz))
+            .service(web::scope("/healthz").service(healthz))
             .service(
             web::scope(&config.prefix)
                 .app_data(web::Data::new(state.clone()))
@@ -81,7 +81,7 @@ fn read_config() -> Config {
     }
 }
 
-#[get("/healthz")]
+#[get("")]
 async fn healthz() -> impl Responder {
     "OK"
 }
