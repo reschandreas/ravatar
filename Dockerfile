@@ -3,7 +3,7 @@ FROM rust:alpine as build-prep
 
 WORKDIR /build
 
-RUN apk add --no-cache clang
+RUN apk add --no-cache clang pkgconfig openssl-dev
 RUN mkdir /build/src && echo "fn main() {}" > /build/src/main.rs
 
 FROM build-prep as build

@@ -1,84 +1,81 @@
-mod structs;
 mod image_processor;
+mod ldap;
+mod structs;
+mod config;
+mod utils;
 
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::{env, fs};
+use std::fs;
 
+use crate::image_processor::{
+    create_links_for_image, evacuate_image, process_directory, process_image, resize_default,
+    update_image,
+};
 use crate::structs::{AppState, Config, ImageRequest};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::web::Query;
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use filetime::FileTime;
+use futures::executor::block_on;
 use futures::{
     channel::mpsc::{channel, Receiver},
     SinkExt, StreamExt,
 };
 use image::io::Reader as ImageReader;
-use md5::Md5;
+use ldap3::Ldap;
 use notify::event::DataChange::Content;
 use notify::event::{ModifyKind, RenameMode};
-use notify::{Event, PollWatcher, RecursiveMode, Watcher};
-use sha2::{Digest, Sha256};
-use crate::image_processor::{evacuate_image, process_directory, processing_image, resize_default, update_image};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use crate::config::{read_config, read_default, read_force_default, read_size};
+use crate::utils::{md5, sha256};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let config = read_config();
-    let port: u16 = config.port;
+    let ldap = match ldap::connect_ldap(config.clone()).await {
+        Ok(ldap) => Some(ldap),
+        Err(e) => {
+            log::error!("could not connect to ldap: {:?}", e);
+            None
+        }
+    };
+    let ldap_clone = ldap.clone();
     let cloned_config = config.clone();
     thread::spawn(move || {
         log::info!("starting resizing");
         let binding = cloned_config.raw.clone();
         let raw_path = Path::new(&binding);
-        resize_default(cloned_config.clone());
-        process_directory(raw_path, cloned_config.clone());
+        resize_default(&cloned_config);
+        block_on(process_directory(raw_path, &cloned_config, ldap_clone));
     });
     let cloned_config = config.clone();
+    let ldap_clone = ldap.clone();
     thread::spawn(move || {
         let raw_path = cloned_config.raw.clone();
-        watch_directory(raw_path, cloned_config.clone());
+        watch_directory(raw_path, &cloned_config, ldap_clone);
     });
+    let host = config.host.clone();
+    let port: u16 = config.port;
     let state = AppState {
-        config: config.clone(),
+        config,
     };
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or(config.log_level.clone()));
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or(state.config.log_level.clone()));
     HttpServer::new(move || {
-        App::new().wrap(Logger::default())
+        App::new()
+            .wrap(Logger::default())
             .service(web::scope("/healthz").service(healthz))
             .service(
-            web::scope(&config.prefix)
-                .app_data(web::Data::new(state.clone()))
-                .service(avatar)
-                .service(hash),
-        )
+                web::scope(&state.config.prefix.clone())
+                    .app_data(web::Data::new(state.clone()))
+                    .service(avatar)
+                    .service(hash),
+            )
     })
-    .bind((config.host, port))?
+    .bind((host, port))?
     .run()
     .await
-}
-
-/**
- * Read the configuration from the environment variables
- */
-fn read_config() -> Config {
-    let prefix: String = env::var("PATH_PREFIX").unwrap_or("/avatar".into());
-    let raw = env::var("RAW_PATH").unwrap_or("./raw".into());
-    let images = env::var("IMAGES_PATH").unwrap_or("./images".into());
-    let extension = env::var("EXTENSION").unwrap_or("jpeg".into());
-    let host = env::var("HOST").unwrap_or("0.0.0.0".into());
-    let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
-    let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
-    Config {
-        host,
-        port,
-        prefix,
-        images,
-        raw,
-        extension,
-        log_level,
-    }
 }
 
 #[get("")]
@@ -92,40 +89,6 @@ async fn hash(path: web::Path<(String,)>) -> HttpResponse {
     let sha256 = sha256(mail.as_str());
     let md5 = md5(mail.as_str());
     HttpResponse::Ok().body(format!("{mail} {sha256} {md5}"))
-}
-
-fn read_size(query: Query<ImageRequest>) -> u16 {
-    if let Some(size_param) = query.s {
-        return size_param;
-    }
-    if let Some(size_param) = query.size {
-        return size_param;
-    }
-    80
-}
-
-fn read_default(query: Query<ImageRequest>) -> String {
-    let mut default: String = "mm".to_string();
-    if let Some(default_param) = &query.d {
-        default = default_param.clone();
-    }
-    if let Some(default_param) = &query.default {
-        default = default_param.clone();
-    }
-    if default.eq("mp") {
-        default = "mm".to_string();
-    }
-    default
-}
-
-fn read_force_default(query: Query<ImageRequest>) -> bool {
-    if let Some(force) = &query.f {
-        return force.eq(&'y');
-    }
-    if let Some(force) = &query.forcedefault {
-        return force.eq(&'y');
-    }
-    false
 }
 
 #[get("/{hash}")]
@@ -170,38 +133,20 @@ async fn avatar(
         .body(image_content)
 }
 
-fn sha256(filename: &str) -> String {
-    Sha256::digest(filename.as_bytes())
-        .iter()
-        .fold(String::new(), |mut acc, byte| {
-            acc.push_str(&format!("{:02x}", byte));
-            acc
-        })
-}
-
-fn md5(filename: &str) -> String {
-    Md5::digest(filename.as_bytes())
-        .iter()
-        .fold(String::new(), |mut acc, byte| {
-            acc.push_str(&format!("{:02x}", byte));
-            acc
-        })
-}
-
-fn watch_directory(path: String, config: Config) {
+fn watch_directory(path: String, config: &Config, ldap: Option<Ldap>) {
     log::info!("watching {}", path);
 
-    futures::executor::block_on(async {
-        if let Err(e) = async_watch(path, config).await {
+    block_on(async {
+        if let Err(e) = async_watch(path, config, ldap).await {
             log::error!("error: {:?}", e);
         }
     });
 }
 
-fn async_watcher() -> notify::Result<(PollWatcher, Receiver<notify::Result<Event>>)> {
+fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
     let (mut tx, rx) = channel(1);
 
-    let watcher = PollWatcher::new(
+    let watcher = RecommendedWatcher::new(
         move |res| {
             futures::executor::block_on(async {
                 tx.send(res).await.unwrap();
@@ -213,11 +158,13 @@ fn async_watcher() -> notify::Result<(PollWatcher, Receiver<notify::Result<Event
     Ok((watcher, rx))
 }
 
-async fn async_watch<P: AsRef<Path>>(path: P, config: Config) -> notify::Result<()> {
+async fn async_watch<P: AsRef<Path>>(
+    path: P,
+    config: &Config,
+    ldap: Option<Ldap>,
+) -> notify::Result<()> {
     let (mut watcher, mut rx) = async_watcher()?;
 
-    // Add a path to be watched. All files and directories at that path and
-    // below will be monitored for changes.
     watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
 
     while let Some(res) = rx.next().await {
@@ -226,22 +173,22 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: Config) -> notify::Result<
                 notify::EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => {
                     log::info!("a file was renamed");
                     if !path.as_ref().exists() {
-                        evacuate_image(&event.paths[0], config.clone());
+                        evacuate_image(&event.paths[0], config, ldap.clone()).await;
                     } else {
-                        processing_image(&event.paths[0], config.clone(), false);
+                        process_image(&event.paths[0], config, ldap.clone(), false).await;
                     }
                 }
                 notify::EventKind::Create(_) => {
                     log::info!("found a new file");
-                    processing_image(&event.paths[0], config.clone(), false);
+                    process_image(&event.paths[0], config, ldap.clone(), false).await;
                 }
                 notify::EventKind::Modify(ModifyKind::Data(Content)) => {
                     log::info!("a file was updated");
-                    update_image(&event.paths[0], config.clone());
+                    update_image(&event.paths[0], config, ldap.clone()).await;
                 }
                 notify::EventKind::Remove(_) => {
                     log::info!("a file was removed");
-                    evacuate_image(&event.paths[0], config.clone());
+                    evacuate_image(&event.paths[0], config, ldap.clone()).await;
                 }
                 _ => {}
             },
@@ -252,13 +199,12 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: Config) -> notify::Result<
     Ok(())
 }
 
-
-
 fn resize_image(
     source: &Path,
     destination: &Path,
     size: u32,
-    link_path: Option<&Path>,
+    directory: &Path,
+    alternate_names: Vec<String>,
     config: Config,
 ) {
     if !Path::exists(source) {
@@ -271,11 +217,11 @@ fn resize_image(
         .resize_to_fill(size, size, image::imageops::FilterType::Lanczos3)
         .save_with_format(
             destination,
-            image::ImageFormat::from_extension(config.extension).unwrap(),
+            image::ImageFormat::from_extension(config.extension.clone()).unwrap(),
         )
         .unwrap();
-    if let Some(link_path) = link_path {
-        fs::hard_link(destination, link_path).unwrap();
+    if !alternate_names.is_empty() {
+        create_links_for_image(config.clone(), directory, destination, alternate_names);
     }
 }
 
@@ -308,7 +254,7 @@ fn get_full_filename(path: &Path) -> String {
 
 fn get_filename(path: &Path) -> Option<String> {
     let filename = get_full_filename(path);
-    if let Some(extension) = get_extension(&path) {
+    if let Some(extension) = get_extension(path) {
         return Some(filename.replace(format!(".{extension}").as_str(), ""));
     }
     None

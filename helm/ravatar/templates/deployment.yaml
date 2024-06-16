@@ -46,14 +46,13 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
           volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
+            - name: {{ .Release.Name }}-data-source
+              mountPath: {{ .Values.dataSource.mountPath }}
       volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        - name: {{ .Release.Name }}-data-source
+          persistentVolumeClaim:
+            claimName: {{ include "ravatar.fullname" . }}-data-source
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

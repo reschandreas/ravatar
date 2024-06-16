@@ -1,17 +1,19 @@
+use crate::ldap::get_attributes_with_filter;
 use crate::structs::Config;
 use crate::{
     build_path, create_directory, get_filename, get_full_filename, md5, needs_update, resize_image,
     sha256,
 };
 use filetime::FileTime;
+use ldap3::Ldap;
 use rand::random;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
-use std::fs;
 use std::path::Path;
 use std::time::Instant;
+use std::{fs, vec};
 
-pub fn resize_default(config: Config) {
+pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
     let binding = build_path(
         vec![config.images.clone(), 512.to_string(), "mm".to_string()],
@@ -35,24 +37,32 @@ pub fn resize_default(config: Config) {
         Some(extension.clone()),
     );
     sizes.par_iter().for_each(|size| {
-        create_directory(build_path(vec![image_path.clone(), size.to_string()], None).as_path());
+        let directory = build_path(vec![image_path.clone(), size.to_string()], None);
+        create_directory(directory.as_path());
         let binding = build_path(
             vec![image_path.clone(), size.to_string(), "mm".to_string()],
             Some(extension.clone()),
         );
         let source_path = source_binding.as_path();
         let path = binding.as_path();
-        resize_image(source_path, path, *size, None, config.clone());
+        resize_image(
+            source_path,
+            path,
+            *size,
+            directory.as_path(),
+            Vec::default(),
+            config.clone(),
+        );
     });
 }
 
-pub fn process_directory(directory: &Path, config: Config) {
+pub async fn process_directory(directory: &Path, config: &Config, ldap: Option<Ldap>) {
     for path in fs::read_dir(directory).unwrap().flatten() {
-        processing_image(&path.path(), config.clone(), false);
+        process_image(&path.path(), config, ldap.clone(), false).await;
     }
 }
 
-pub fn processing_image(path: &Path, config: Config, force: bool) {
+pub async fn process_image(path: &Path, config: &Config, ldap: Option<Ldap>, force: bool) {
     create_directory(Path::new(&config.images));
     if let Some(filename) = get_filename(path) {
         let binding = build_path(
@@ -64,12 +74,11 @@ pub fn processing_image(path: &Path, config: Config, force: bool) {
             log::info!("skipping {}", path.to_str().unwrap());
             return;
         }
-
-        handle_image(path, config.clone());
+        handle_image(path, config, ldap).await;
     }
 }
 
-pub fn update_image(path: &Path, config: Config) {
+pub async fn update_image(path: &Path, config: &Config, ldap: Option<Ldap>) {
     log::debug!(
         "updating {} {}",
         path.to_str().unwrap(),
@@ -79,33 +88,39 @@ pub fn update_image(path: &Path, config: Config) {
         return;
     }
     log::debug!("updating {}", path.to_str().unwrap());
-    processing_image(path, config, true);
+    process_image(path, config, ldap, true).await;
 }
 
-pub fn evacuate_image(path: &Path, config: Config) {
+pub async fn evacuate_image(path: &Path, config: &Config, ldap: Option<Ldap>) {
     log::info!("evacuating {}", path.to_str().unwrap());
     if let Some(filename) = get_filename(path) {
-        if filename.starts_with('.') || !get_full_filename(path).ends_with(&config.extension) {
+        if filename.starts_with('.') {
             return;
         }
         let md5_hash = md5(&filename);
-        let sha256 = sha256(&filename);
-        println!("gotta clean up {} and {}", md5_hash, sha256);
+        println!("gotta clean up {} and all other links", md5_hash);
         let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
+        let mut alternate_names = Vec::new();
+        if let Some(ldap) = ldap {
+            alternate_names = get_alternate_names_of(config.clone(), Some(ldap), &filename).await;
+        }
+        alternate_names.push(sha256(&filename));
         sizes.iter().for_each(|size| {
             let size_path = build_path(vec![config.images.clone(), size.to_string()], None);
             let cache_path = build_path(
                 vec![size_path.to_str().unwrap().to_string(), md5_hash.clone()],
                 Some(config.extension.clone()),
             );
-            let link_path = build_path(
-                vec![size_path.to_str().unwrap().to_string(), sha256.clone()],
-                Some(config.extension.clone()),
-            );
-            if link_path.as_path().exists() {
-                fs::remove_file(link_path).expect("Could not delete link");
-            } else {
-                log::info!("link not found {}", link_path.to_str().unwrap());
+            for name in alternate_names.clone() {
+                let link_path = build_path(
+                    vec![size_path.to_str().unwrap().to_string(), name],
+                    Some(config.extension.clone()),
+                );
+                if link_path.as_path().exists() {
+                    fs::remove_file(link_path).expect("Could not delete link");
+                } else {
+                    log::info!("link not found {}", link_path.to_str().unwrap());
+                }
             }
             if cache_path.as_path().exists() {
                 fs::remove_file(cache_path).expect("Could not delete file");
@@ -116,12 +131,28 @@ pub fn evacuate_image(path: &Path, config: Config) {
     }
 }
 
-pub fn handle_image(source: &Path, config: Config) {
+async fn get_alternate_names_of(config: Config, ldap: Option<Ldap>, filename: &str) -> Vec<String> {
+    let mut alternate_names = vec![sha256(filename)];
+    if let Some(ldap) = ldap {
+        for value in get_attributes_with_filter(config, ldap, filename)
+            .await
+            .unwrap_or_default()
+        {
+            alternate_names.push(md5(&value));
+            alternate_names.push(sha256(&value));
+        }
+    }
+    alternate_names
+}
+
+pub async fn handle_image(source: &Path, config: &Config, ldap: Option<Ldap>) {
     if let Some(lock) = lock_image(source, config.clone()) {
         let before = Instant::now();
         if let Some(filename) = get_filename(source) {
             let md5_hash = md5(&filename);
-            let sha256 = sha256(&filename);
+            // let's find some more names for this image
+            let alternate_names =
+                get_alternate_names_of(config.clone(), ldap.clone(), &filename).await;
 
             let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
             log::info!("processing {}", source.to_str().unwrap());
@@ -135,16 +166,18 @@ pub fn handle_image(source: &Path, config: Config) {
                 );
 
                 let cache_path = binding.as_path();
-                let binding = build_path(
-                    vec![config.images.clone(), size.to_string(), sha256.clone()],
-                    Some(config.extension.clone()),
-                );
 
                 if !needs_update(source, cache_path) {
                     return;
                 }
-                let link_path = binding.as_path();
-                resize_image(source, cache_path, *size, Some(link_path), config.clone());
+                resize_image(
+                    source,
+                    cache_path,
+                    *size,
+                    size_path,
+                    alternate_names.clone(),
+                    config.clone(),
+                );
             });
             log::info!("resized {} in {:?}", filename, before.elapsed());
         }
@@ -152,10 +185,29 @@ pub fn handle_image(source: &Path, config: Config) {
     }
 }
 
+pub fn create_links_for_image(
+    config: Config,
+    directory: &Path,
+    source: &Path,
+    alternate_names: Vec<String>,
+) {
+    for name in alternate_names {
+        let link_path = build_path(
+            vec![directory.to_str().unwrap().parse().unwrap(), name],
+            Some(config.extension.clone()),
+        );
+        if !link_path.as_path().exists() {
+            fs::hard_link(source, link_path.as_path()).unwrap();
+        }
+    }
+}
+
 fn lock_image(path: &Path, config: Config) -> Option<String> {
     if let Some(filename) = get_filename(path) {
         let md5_hash = md5(&filename);
-        create_directory(build_path(vec![config.images.clone(), ".locks".to_string()], None).as_path());
+        create_directory(
+            build_path(vec![config.images.clone(), ".locks".to_string()], None).as_path(),
+        );
         let lock_path = build_path(
             vec![
                 config.images.clone(),
@@ -206,6 +258,6 @@ fn release_if_old_lock(path: &Path) {
     let metadata = fs::metadata(path).unwrap();
     let raw_mtime = FileTime::from_last_modification_time(&metadata);
     if raw_mtime.seconds() > 60 {
-        fs::remove_file(&path).unwrap()
+        fs::remove_file(path).unwrap()
     }
 }
