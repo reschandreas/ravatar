@@ -1,8 +1,8 @@
 use ldap3::{Ldap, LdapConnAsync, LdapConnSettings, LdapError, SearchEntry};
 use crate::structs::Config;
 
-pub(crate) async fn connect_ldap(config: Config) -> Result<Ldap, LdapError> {
-    let Some(ldap_config) = config.ldap else {
+pub(crate) async  fn connect_ldap(config: &Config) -> Result<Ldap, LdapError> {
+    let Some(ldap_config) = &config.ldap else {
         return Err(LdapError::UrlParsing {
             source: url::ParseError::EmptyHost,
         });
@@ -27,9 +27,9 @@ pub(crate) async fn connect_ldap(config: Config) -> Result<Ldap, LdapError> {
 
 pub(crate) async fn get_attributes_with_filter(
     config: Config,
-    mut ldap: Ldap,
     input: &str,
 ) -> Option<Vec<String>> {
+    let mut ldap = connect_ldap(&config).await.unwrap();
     let ldap_config = config.ldap?;
     let filter = format!(
         "(&{}({}={}))",

@@ -96,7 +96,7 @@ jobs:
             type=sha
             type=raw,value=${{steps.compute-tag.outputs.result}}
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{steps.compute-arch.outputs.result}}

@@ -34,6 +34,8 @@ pub(crate) fn read_config() -> Config {
             input_attribute: ldap_input_attribute,
             target_attributes: ldap_target_attributes,
         });
+    } else {
+        println!("No ldap configuration found");
     }
     Config {
         host,
