@@ -9,6 +9,18 @@ pub(crate) struct Config {
     pub raw: String,
     pub extension: String,
     pub log_level: String,
+    pub ldap: Option<LdapConfig>,
+}
+
+#[derive(Default, Clone, Debug)]
+pub(crate) struct LdapConfig {
+    pub url: String,
+    pub bind_username: String,
+    pub bind_password: String,
+    pub base_dn: String,
+    pub search_filter: String,
+    pub input_attribute: String,
+    pub target_attributes: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
