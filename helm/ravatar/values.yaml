@@ -5,29 +5,25 @@ image:
   pullPolicy: IfNotPresent
   tag: nightly
 
-imagePullSecrets: []
+imagePullSecrets: [ ]
 nameOverride: "ravatar"
 fullnameOverride: "ravatar"
 
 serviceAccount:
   create: true
   automount: true
-  annotations: {}
+  annotations: { }
   name: ""
 
-podAnnotations: {}
-podLabels: {}
+podAnnotations: { }
+podLabels: { }
 
-podSecurityContext: {}
-  # fsGroup: 2000
+podSecurityContext: { }
 
 securityContext:
-   capabilities:
-     drop:
-     - ALL
-#   readOnlyRootFilesystem: true
-#   runAsNonRoot: true
-#   runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
 
 service:
   type: ClusterIP
@@ -36,27 +32,20 @@ service:
 ingress:
   enabled: true
   className: ""
-  annotations: {}
+  annotations: { }
   hosts:
     - host: ravatar.local
       paths:
         - path: /
           pathType: ImplementationSpecific
-  tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
+  tls: [ ]
 
-resources: {}
+resources: { }
 
 livenessProbe:
   httpGet:
     path: /healthz
     port: http
-#readinessProbe:
-#  httpGet:
-#    path: /
-#    port: http
 
 autoscaling:
   enabled: false
@@ -64,21 +53,12 @@ autoscaling:
   maxReplicas: 20
   targetCPUUtilizationPercentage: 80
 
-# Additional volumes on the output Deployment definition.
-volumes: []
-# - name: foo
-#   secret:
-#     secretName: mysecret
-#     optional: false
+dataSource:
+  storageClassName: ""
+  mountPath: /raw
 
-# Additional volumeMounts on the output Deployment definition.
-volumeMounts: []
-# - name: foo
-#   mountPath: "/etc/foo"
-#   readOnly: true
+nodeSelector: { }
 
-nodeSelector: {}
+tolerations: [ ]
 
-tolerations: []
-
-affinity: {}
+affinity: { }

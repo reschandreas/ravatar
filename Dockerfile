@@ -3,8 +3,10 @@ FROM rust:alpine as build-prep
 
 WORKDIR /build
 
-RUN apk add --no-cache clang
+RUN apk add --no-cache clang gcompat build-base musl-dev openssl-dev openldap-dev
 RUN mkdir /build/src && echo "fn main() {}" > /build/src/main.rs
+ENV PKG_CONFIG_PATH="/usr/lib/pkgconfig"
+ENV OPENSSL_DIR="/usr"
 
 FROM build-prep as build
 
@@ -22,7 +24,10 @@ RUN cargo build --release
 # Create a minimal docker image
 FROM alpine:latest
 
-ENV RUST_LOG="error,ravatar=info"
+#RUN apk add --no-cache clang gcompat build-base musl-dev openssl-dev openldap-dev openldap openssl
+RUN apk add --no-cache gcompat musl-dev
+ENV RUST_LOG="debug,ravatar=info"
+ENV OPENSSL_DIR="/usr"
 COPY --from=build /build/target/release/ravatar /ravatar
 ADD ./default /default
 ENV RUST_BACKTRACE=full
@@ -31,5 +36,6 @@ EXPOSE 8080
 
 VOLUME /raw
 VOLUME /images
+
 CMD ["/ravatar"]
 ENTRYPOINT ["/ravatar"]
