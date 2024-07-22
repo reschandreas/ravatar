@@ -40,6 +40,23 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          env:
+            - name: PATH_PREFIX
+              value: {{ .Values.ravatar.prefix | default "/avatar" | quote }}
+            - name: HOST
+              value: {{ .Values.ravatar.host | default "0.0.0.0" | quote }}
+            - name: PORT
+              value: {{ .Values.ravatar.port | default 8080 | quote }}
+            - name: EXTENSION
+              value: {{ .Values.ravatar.imageExtension | default "png" }}
+            - name: RAW_PATH
+              value: {{ .Values.ravatar.rawImagesPath | default "/raw" }}
+            - name: IMAGES_PATH
+              value: {{ .Values.ravatar.generatedImagesPath | default "/images" }}
+            - name: LOG_LEVEL
+              value: {{ .Values.ravatar.logLevel | default "info" }}
+            - name: OFFER_ORIGINAL_DIMENSIONS
+              value: {{ .Values.ravatar.offerOriginalDimensions | default "false" }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
