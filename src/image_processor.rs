@@ -1,21 +1,21 @@
 use crate::ldap::get_attributes_with_filter;
 use crate::structs::Config;
+use crate::utils::{build_path, create_directory, get_filename, get_full_filename};
 use crate::{md5, sha256};
 use filetime::FileTime;
+use futures::channel::mpsc::{channel, Receiver};
+use futures::executor::block_on;
+use futures::{SinkExt, StreamExt};
+use image::ImageReader;
+use notify::event::DataChange::Content;
+use notify::event::{ModifyKind, RenameMode};
+use notify::{Event, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use rand::random;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 use std::path::Path;
 use std::time::Instant;
 use std::{fs, vec};
-use futures::channel::mpsc::{channel, Receiver};
-use futures::executor::block_on;
-use futures::{SinkExt, StreamExt};
-use notify::event::{ModifyKind, RenameMode};
-use notify::event::DataChange::Content;
-use notify::{Event, PollWatcher, RecursiveMode, Watcher};
-use image::io::Reader as ImageReader;
-use crate::utils::{build_path, create_directory, get_filename, get_full_filename};
 
 pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
@@ -55,7 +55,7 @@ pub fn resize_default(config: &Config) {
             *size,
             directory.as_path(),
             Vec::default(),
-            config.clone(),
+            config.clone()
         );
     });
 }
@@ -155,10 +155,9 @@ pub async fn handle_image(source: &Path, config: &Config) {
         if let Some(filename) = get_filename(source) {
             let md5_hash = md5(&filename);
             // let's find some more names for this image
-            let alternate_names =
-                get_alternate_names_of(config.clone(), &filename).await;
+            let alternate_names = get_alternate_names_of(config.clone(), &filename).await;
 
-            let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
+            let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
             log::info!("processing {}", source.to_str().unwrap());
             sizes.par_iter().for_each(|size| {
                 let binding = build_path(vec![config.images.clone(), size.to_string()], None);
@@ -182,6 +181,22 @@ pub async fn handle_image(source: &Path, config: &Config) {
                     alternate_names.clone(),
                     config.clone(),
                 );
+                if config.offer_original_dimensions {
+                    let binding = build_path(
+                        vec![config.images.clone(), "original-dimensions".to_string(), size.to_string(), md5_hash.clone()],
+                        Some(config.extension.clone()),
+                    );
+
+                    let cache_path = binding.as_path();
+                    resize_image(
+                        source,
+                        cache_path,
+                        *size,
+                        size_path,
+                        alternate_names.clone(),
+                        config.clone(),
+                    );
+                }
             });
             log::info!("resized {} in {:?}", filename, before.elapsed());
         }
@@ -268,11 +283,10 @@ fn release_if_old_lock(path: &Path) {
     }
 }
 
-
-fn async_watcher() -> notify::Result<(PollWatcher, Receiver<notify::Result<Event>>)> {
+fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
     let (mut tx, rx) = channel(1);
 
-    let watcher = PollWatcher::new(
+    let watcher = RecommendedWatcher::new(
         move |res| {
             block_on(async {
                 tx.send(res).await.unwrap();
@@ -292,10 +306,7 @@ pub(crate) async fn watch_directory(path: String, config: &Config) {
     }
 }
 
-async fn async_watch<P: AsRef<Path>>(
-    path: P,
-    config: &Config,
-) -> notify::Result<()> {
+async fn async_watch<P: AsRef<Path>>(path: P, config: &Config) -> notify::Result<()> {
     let (mut watcher, mut rx) = async_watcher()?;
 
     watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;

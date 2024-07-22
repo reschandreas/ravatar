@@ -27,17 +27,18 @@ async fn main() -> std::io::Result<()> {
         env_logger::Env::new().default_filter_or(state.config.log_level.clone()),
     );
     let cloned_config = state.config.clone();
-    let _ = tokio::spawn(async move {
+    tokio::spawn(async move {
         log::info!("starting resizing");
         let binding = cloned_config.raw.clone();
         let raw_path = Path::new(binding.as_str());
         resize_default(&cloned_config);
-        let _ = process_directory(raw_path, &cloned_config);
+        process_directory(raw_path, &cloned_config).await;
     });
     let cloned_config = state.config.clone();
-    let _ = tokio::spawn(async move {
+    tokio::spawn(async move {
+        log::info!("starting watch");
         let raw_path = cloned_config.raw.clone();
-        let _ = watch_directory(raw_path, &cloned_config.clone());
+        watch_directory(raw_path, &cloned_config.clone()).await;
     });
     println!("Starting server at http://{host}:{port}");
     HttpServer::new(move || {
@@ -84,8 +85,13 @@ async fn avatar(
     let size: u16 = read_size(query.clone());
     let default: String = read_default(query.clone());
     log::debug!("serving {mail_hash}, size {size}");
+    let mut path_parts = vec![cache_dir.clone(), size.to_string()];
+    if query.orignal_dimensions.unwrap_or_default() {
+        path_parts.push("original".to_string());
+    }
+    path_parts.push(mail_hash.clone());
     let mut path = build_path(
-        vec![cache_dir.clone(), size.to_string(), mail_hash.clone()],
+        path_parts,
         Some(config.extension.clone()),
     );
     if !path.exists() || read_force_default(query) {
