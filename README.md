@@ -15,7 +15,7 @@ via CLI, we only support environment variables.
 #### Run locally
 
 ```shell
-docker run -p 8080:8080 -v /path/to/images:/raw ghcr.io/reschandreas/ravatar:images
+docker run -p 8080:8080 -v /path/to/images:/raw ghcr.io/reschandreas/ravatar:latest
 ```
 
 ### Environment Variables

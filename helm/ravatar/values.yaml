@@ -5,6 +5,17 @@ image:
   pullPolicy: IfNotPresent
   tag: nightly
 
+ravatar:
+  prefix: "/avatar"
+  host: "0.0.0.0"
+  imageExtension: "png"
+  port: 8080
+  rawImagesPath: "/raw"
+  generatedImagesPath: "/images"
+  logLevel: "info"
+  offerOriginalDimensions: false
+
+
 imagePullSecrets: [ ]
 nameOverride: "ravatar"
 fullnameOverride: "ravatar"
