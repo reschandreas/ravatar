@@ -1,5 +1,6 @@
 use std::env;
 use actix_web::web::Query;
+use log::log;
 use crate::structs::{Config, ImageRequest, LdapConfig};
 
 /**
@@ -39,7 +40,7 @@ pub(crate) fn read_config() -> Config {
             target_attributes: ldap_target_attributes,
         });
     } else {
-        println!("No ldap configuration found");
+        log::info!("LDAP_URL not set, LDAP authentication will not be available");
     }
     Config {
         host,

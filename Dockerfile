@@ -12,6 +12,8 @@ FROM build-prep AS build
 
 COPY Cargo.toml Cargo.lock /build/
 
+# because we are not guaranteed to use the same version of alpine, we need to statically link the libraries
+ENV RUSTFLAGS="-Ctarget-feature=-crt-static"
 # cache dependencies
 RUN cargo build --release
 
@@ -25,9 +27,10 @@ RUN cargo build --release
 FROM alpine:latest
 
 #RUN apk add --no-cache clang gcompat build-base musl-dev openssl-dev openldap-dev openldap openssl
-RUN apk add --no-cache gcompat musl-dev
+RUN apk add --no-cache gcompat libgcc
+
 ENV RUST_LOG="debug,ravatar=info"
-ENV OPENSSL_DIR="/usr"
+
 COPY --from=build /build/target/release/ravatar /ravatar
 ADD ./default /default
 ENV RUST_BACKTRACE=full
@@ -37,5 +40,5 @@ EXPOSE 8080
 VOLUME /raw
 VOLUME /images
 
-CMD ["/ravatar"]
+#CMD ["/ravatar"]
 ENTRYPOINT ["/ravatar"]
