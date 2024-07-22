@@ -9,6 +9,7 @@ pub(crate) struct Config {
     pub raw: String,
     pub extension: String,
     pub log_level: String,
+    pub offer_original_dimensions: bool,
     pub ldap: Option<LdapConfig>,
 }
 
@@ -31,6 +32,7 @@ pub struct ImageRequest {
     pub(crate) default: Option<String>,
     pub(crate) forcedefault: Option<char>,
     pub(crate) f: Option<char>,
+    pub(crate) orignal_dimensions: Option<bool>,
 }
 
 #[derive(Clone)]

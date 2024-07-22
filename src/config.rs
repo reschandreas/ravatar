@@ -13,6 +13,10 @@ pub(crate) fn read_config() -> Config {
     let host = env::var("HOST").unwrap_or("0.0.0.0".into());
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
     let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
+    let offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
+        .unwrap_or("false".into())
+        .parse()
+        .unwrap();
     let mut ldap: Option<LdapConfig> = None;
     if let Ok(ldap_url) = env::var("LDAP_URL") {
         let ldap_bind_username = env::var("LDAP_BIND_USERNAME").unwrap_or("".into());
@@ -46,6 +50,7 @@ pub(crate) fn read_config() -> Config {
         extension,
         log_level,
         ldap,
+        offer_original_dimensions,
     }
 }
 

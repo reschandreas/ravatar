@@ -1,5 +1,5 @@
 #FROM rust:slim-bullseye as build
-FROM rust:alpine as build-prep
+FROM rust:alpine AS build-prep
 
 WORKDIR /build
 
@@ -8,7 +8,7 @@ RUN mkdir /build/src && echo "fn main() {}" > /build/src/main.rs
 ENV PKG_CONFIG_PATH="/usr/lib/pkgconfig"
 ENV OPENSSL_DIR="/usr"
 
-FROM build-prep as build
+FROM build-prep AS build
 
 COPY Cargo.toml Cargo.lock /build/
 
