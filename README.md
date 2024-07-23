@@ -2,15 +2,15 @@
 
 ![build](https://github.com/reschandreas/ravatar/actions/workflows/build-and-push.yaml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![GitHub Release](https://img.shields.io/github/v/release/reschandreas/ravatar)
 
 Ravatar is a simple implementation of the server specification of [Libavatar](https://wiki.libravatar.org/api/). The
-project is written in Rust and used [surrogator](https://github.com/cweiske/surrogator) by cweiske as a reference.
+project is written in Rust and used [surrogator](https://github.com/cweiske/surrogator) by [cweiske](https://github.com/cweiske) as a reference.
 
 ## Usage
 
-The server is very simple to use and not designed to be used directly, but in a container, which is ready to use, or
-k8s, thus it is not featuring any configuration
-via CLI, we only support environment variables.
+The server is simple and not designed to be used directly, but in a container, which is ready to use, or
+k8s, thus it is not featuring any configuration via CLI, we only support environment variables.
 
 #### Run locally
 
@@ -43,4 +43,4 @@ on environment variables, which are prefixed with `LDAP_`.
 | `LDAP_BASE_DN`           | The base DN for the LDAP server                                                                      | `dc=example,dc=com`          |
 | `LDAP_SEARCH_FILTER`     | The filter for the LDAP server, should filter the objectClass                                        |                              | `(objectClass=inetOrgPerson)` |
 | `LDAP_INPUT_ATTRIBUTE`   | The attribute to search for in the LDAP server, corresponds to your filenames                        |                              | `sn`                          |
-| `LDAP_TARGET_ATTRIBUTES` | The attributes to return from the LDAP server, which will then also serve the image. Seperate by `,` |                              | `mail,username`               |
+| `LDAP_TARGET_ATTRIBUTES` | The attributes to return from the LDAP server, which will then also serve the image. Separate by `,` |                              | `mail,username`               |
