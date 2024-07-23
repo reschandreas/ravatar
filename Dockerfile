@@ -1,12 +1,11 @@
-#FROM rust:slim-bullseye as build
 FROM rust:alpine AS build-prep
 
 WORKDIR /build
 
 RUN apk add --no-cache clang gcompat build-base musl-dev openssl-dev openldap-dev
 RUN mkdir /build/src && echo "fn main() {}" > /build/src/main.rs
-ENV PKG_CONFIG_PATH="/usr/lib/pkgconfig"
-ENV OPENSSL_DIR="/usr"
+ENV PKG_CONFIG_PATH="/usr/lib/pkgconfig" \
+    OPENSSL_DIR="/usr"
 
 FROM build-prep AS build
 
@@ -26,7 +25,6 @@ RUN cargo build --release
 # Create a minimal docker image
 FROM alpine:latest
 
-#RUN apk add --no-cache clang gcompat build-base musl-dev openssl-dev openldap-dev openldap openssl
 RUN apk add --no-cache gcompat libgcc
 
 ENV RUST_LOG="debug,ravatar=info"
@@ -40,5 +38,4 @@ EXPOSE 8080
 VOLUME /raw
 VOLUME /images
 
-#CMD ["/ravatar"]
 ENTRYPOINT ["/ravatar"]
