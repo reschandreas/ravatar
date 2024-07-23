@@ -57,6 +57,23 @@ spec:
               value: {{ .Values.ravatar.logLevel | default "info" }}
             - name: OFFER_ORIGINAL_DIMENSIONS
               value: {{ .Values.ravatar.offerOriginalDimensions | default "false" }}
+            {{ if .Values.ravatar.ldap.enabled }}
+            - name: LDAP_URL
+              value: {{ .Values.ravatar.ldap.url | quote }}
+            - name: LDAP_BIND_USERNAME
+              value: {{ .Values.ravatar.ldap.bindUsername | quote }}
+            - name: LDAP_BIND_PASSWORD
+              value: {{ .Values.ravatar.ldap.bindPassword | quote }}
+            - name: LDAP_BASE_DN
+              value: {{ .Values.ravatar.ldap.baseDN | quote }}
+            - name: LDAP_SEARCH_FILTER
+              value: {{ .Values.ravatar.ldap.searchFilter | quote }}
+            - name: LDAP_INPUT_ATTRIBUTE
+              value: {{ .Values.ravatar.ldap.inputAttribute | quote }}
+            - name: LDAP_TARGET_ATTRIBUTES
+              value: {{ .Values.ravatar.ldap.targetAttributes | quote }}
+            {{ end }}
+
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

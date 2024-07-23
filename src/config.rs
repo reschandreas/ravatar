@@ -1,6 +1,5 @@
 use std::env;
 use actix_web::web::Query;
-use log::log;
 use crate::structs::{Config, ImageRequest, LdapConfig};
 
 /**

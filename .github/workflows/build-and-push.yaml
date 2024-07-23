@@ -11,6 +11,7 @@ on:
       - main
     paths-ignore:
       - "README.md"
+      - "helm/**"
 
 env:
   REGISTRY: ghcr.io
@@ -78,7 +79,7 @@ jobs:
             }
             return "canary";
 
-      - name: log in to the Container registry
+      - name: log in to the container registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}

@@ -9,7 +9,7 @@ use futures::{SinkExt, StreamExt};
 use image::ImageReader;
 use notify::event::DataChange::Content;
 use notify::event::{ModifyKind, RenameMode};
-use notify::{Event, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use rand::random;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
