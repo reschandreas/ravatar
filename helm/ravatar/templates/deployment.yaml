@@ -48,15 +48,15 @@ spec:
             - name: PORT
               value: {{ .Values.ravatar.port | default 8080 | quote }}
             - name: EXTENSION
-              value: {{ .Values.ravatar.imageExtension | default "png" }}
+              value: {{ .Values.ravatar.imageExtension | default "png" | quote }}
             - name: RAW_PATH
-              value: {{ .Values.ravatar.rawImagesPath | default "/raw" }}
+              value: {{ .Values.ravatar.rawImagesPath | default "/raw"| quote }}
             - name: IMAGES_PATH
-              value: {{ .Values.ravatar.generatedImagesPath | default "/images" }}
+              value: {{ .Values.ravatar.generatedImagesPath | default "/images" | quote }}
             - name: LOG_LEVEL
-              value: {{ .Values.ravatar.logLevel | default "info" }}
+              value: {{ .Values.ravatar.logLevel | default "info" | quote }}
             - name: OFFER_ORIGINAL_DIMENSIONS
-              value: {{ .Values.ravatar.offerOriginalDimensions | default "false" }}
+              value: {{ .Values.ravatar.offerOriginalDimensions | default false | quote }}
             {{ if .Values.ravatar.ldap.enabled }}
             - name: LDAP_URL
               value: {{ .Values.ravatar.ldap.url | quote }}
