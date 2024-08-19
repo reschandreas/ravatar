@@ -1,7 +1,7 @@
-use ldap3::{Ldap, LdapConnAsync, LdapConnSettings, LdapError, SearchEntry};
 use crate::structs::Config;
+use ldap3::{Ldap, LdapConnAsync, LdapConnSettings, LdapError, SearchEntry};
 
-pub(crate) async  fn connect_ldap(config: &Config) -> Result<Ldap, LdapError> {
+pub(crate) async fn connect_ldap(config: &Config) -> Result<Ldap, LdapError> {
     let Some(ldap_config) = &config.ldap else {
         return Err(LdapError::UrlParsing {
             source: url::ParseError::EmptyHost,
@@ -13,22 +13,16 @@ pub(crate) async  fn connect_ldap(config: &Config) -> Result<Ldap, LdapError> {
             .set_no_tls_verify(true),
         &ldap_config.url,
     )
-        .await?;
+    .await?;
     ldap3::drive!(conn);
     let result = ldap
-        .simple_bind(
-            &ldap_config.bind_username,
-            &ldap_config.bind_password,
-        )
+        .simple_bind(&ldap_config.bind_username, &ldap_config.bind_password)
         .await?;
     result.success()?;
     Ok(ldap)
 }
 
-pub(crate) async fn get_attributes_with_filter(
-    config: Config,
-    input: &str,
-) -> Option<Vec<String>> {
+pub(crate) async fn get_attributes_with_filter(config: Config, input: &str) -> Option<Vec<String>> {
     let mut ldap = connect_ldap(&config).await.unwrap();
     let ldap_config = config.ldap?;
     let filter = format!(
@@ -42,8 +36,10 @@ pub(crate) async fn get_attributes_with_filter(
             &filter,
             &ldap_config.target_attributes,
         )
-        .await.unwrap()
-        .success().unwrap();
+        .await
+        .unwrap()
+        .success()
+        .unwrap();
     if search_result.is_empty() {
         return None;
     }

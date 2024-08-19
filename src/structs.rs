@@ -32,7 +32,7 @@ pub struct ImageRequest {
     pub(crate) default: Option<String>,
     pub(crate) forcedefault: Option<char>,
     pub(crate) f: Option<char>,
-    pub(crate) orignal_dimensions: Option<bool>,
+    pub(crate) original_dimensions: Option<bool>,
 }
 
 #[derive(Clone)]
