@@ -13,7 +13,7 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use rand::random;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, vec};
 
@@ -55,7 +55,7 @@ pub fn resize_default(config: &Config) {
             *size,
             directory.as_path(),
             Vec::default(),
-            config.clone()
+            config.clone(),
         );
     });
 }
@@ -182,8 +182,34 @@ pub async fn handle_image(source: &Path, config: &Config) {
                     config.clone(),
                 );
                 if config.offer_original_dimensions {
+                    let dimensions_path: PathBuf = build_path(
+                        vec![
+                            config.images.clone(),
+                            "original-dimensions".to_string()
+                        ],
+                        None
+                    );
+                    if !dimensions_path.exists() {
+                        create_directory(dimensions_path.as_path());
+                    }
                     let binding = build_path(
-                        vec![config.images.clone(), "original-dimensions".to_string(), size.to_string(), md5_hash.clone()],
+                        vec![
+                            config.images.clone(),
+                            "original-dimensions".to_string(),
+                            size.to_string(),
+                        ],
+                        None,
+                    );
+                    if !binding.as_path().exists() {
+                        create_directory(binding.as_path());
+                    }
+                    let binding = build_path(
+                        vec![
+                            config.images.clone(),
+                            "original-dimensions".to_string(),
+                            size.to_string(),
+                            md5_hash.clone(),
+                        ],
                         Some(config.extension.clone()),
                     );
 
@@ -357,13 +383,22 @@ fn resize_image(
     }
     let img = ImageReader::open(source).unwrap().decode();
     log::debug!("resizing {}", source.to_str().unwrap());
-    img.expect("Can't read image")
+
+    let result = img
+        .expect("Can't read image")
         .resize_to_fill(size, size, image::imageops::FilterType::Lanczos3)
         .save_with_format(
             destination,
             image::ImageFormat::from_extension(config.extension.clone()).unwrap(),
-        )
-        .unwrap();
+        );
+    if result.is_err() {
+        log::error!(
+            "Could not resize image {} and store to {}",
+            source.to_str().unwrap(),
+            destination.to_str().unwrap()
+        );
+        return;
+    }
     if !alternate_names.is_empty() {
         create_links_for_image(config.clone(), directory, destination, alternate_names);
     }

@@ -1,7 +1,7 @@
-use std::fs;
-use std::path::{Path, PathBuf};
 use md5::Md5;
 use sha2::{Digest, Sha256};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn sha256(filename: &str) -> String {
     Sha256::digest(filename.as_bytes())
@@ -35,7 +35,6 @@ pub(crate) fn get_extension(path: &Path) -> Option<String> {
     }
     None
 }
-
 
 pub(crate) fn get_full_filename(path: &Path) -> String {
     path.to_str()

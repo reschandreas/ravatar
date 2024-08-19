@@ -43,7 +43,7 @@ async fn main() -> std::io::Result<()> {
     println!("Starting server at http://{host}:{port}");
     HttpServer::new(move || {
         App::new()
-            .wrap(Logger::default())
+            .wrap(Logger::default().exclude("/healthz"))
             .service(web::scope("/healthz").service(healthz))
             .service(
                 web::scope(&state.config.prefix.clone())
@@ -85,15 +85,13 @@ async fn avatar(
     let size: u16 = read_size(query.clone());
     let default: String = read_default(query.clone());
     log::debug!("serving {mail_hash}, size {size}");
-    let mut path_parts = vec![cache_dir.clone(), size.to_string()];
-    if query.orignal_dimensions.unwrap_or_default() {
-        path_parts.push("original".to_string());
+    let mut path_parts = vec![cache_dir.clone()];
+    if query.original_dimensions.unwrap_or_default() {
+        path_parts.push("original-dimensions".to_string());
     }
+    path_parts.push(size.to_string());
     path_parts.push(mail_hash.clone());
-    let mut path = build_path(
-        path_parts,
-        Some(config.extension.clone()),
-    );
+    let mut path = build_path(path_parts, Some(config.extension.clone()));
     if !path.exists() || read_force_default(query) {
         log::debug!("not found {mail_hash}, size {size}, serving {default}");
         match default.as_str() {

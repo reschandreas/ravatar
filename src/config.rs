@@ -1,6 +1,6 @@
-use std::env;
-use actix_web::web::Query;
 use crate::structs::{Config, ImageRequest, LdapConfig};
+use actix_web::web::Query;
+use std::env;
 
 /**
  * Read the configuration from the environment variables
@@ -53,7 +53,6 @@ pub(crate) fn read_config() -> Config {
         offer_original_dimensions,
     }
 }
-
 
 pub(crate) fn read_size(query: Query<ImageRequest>) -> u16 {
     if let Some(size_param) = query.s {
