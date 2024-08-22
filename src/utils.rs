@@ -31,7 +31,7 @@ pub(crate) fn create_directory(path: &Path) {
 pub(crate) fn get_extension(path: &Path) -> Option<String> {
     let extension = path.extension();
     if let Some(extension) = extension {
-        return Some(extension.to_str().unwrap().to_string());
+        return Some(extension.to_str()?.to_string());
     }
     None
 }
@@ -48,7 +48,7 @@ pub(crate) fn get_full_filename(path: &Path) -> String {
 pub(crate) fn get_filename(path: &Path) -> Option<String> {
     let filename = get_full_filename(path);
     if let Some(extension) = get_extension(path) {
-        return Some(filename.replace(format!(".{extension}").as_str(), ""));
+        return Some(filename.replace(format!(".{extension}").as_str(), "").trim().parse().unwrap());
     }
     None
 }

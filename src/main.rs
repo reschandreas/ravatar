@@ -28,11 +28,14 @@ async fn main() -> std::io::Result<()> {
     );
     let cloned_config = state.config.clone();
     tokio::spawn(async move {
-        log::info!("starting resizing");
-        let binding = cloned_config.raw.clone();
-        let raw_path = Path::new(binding.as_str());
-        resize_default(&cloned_config);
-        process_directory(raw_path, &cloned_config).await;
+        loop {
+            log::info!("starting periodic check");
+            let binding = cloned_config.raw.clone();
+            let raw_path = Path::new(binding.as_str());
+            resize_default(&cloned_config);
+            process_directory(raw_path, &cloned_config).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+        }
     });
     let cloned_config = state.config.clone();
     tokio::spawn(async move {
