@@ -1,7 +1,6 @@
-name: build
+name: create and push docker image
 
 on:
-  merge_group:
   workflow_dispatch:
   pull_request:
   push:
@@ -11,7 +10,6 @@ on:
       - main
     paths-ignore:
       - "README.md"
-      - "helm/**"
 
 env:
   REGISTRY: ghcr.io
@@ -36,29 +34,12 @@ jobs:
       - name: set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: compute architectures for build
-        uses: actions/github-script@v7
-        id: compute-arch
+      - name: log in to the Container registry
+        uses: docker/login-action@v3
         with:
-          result-encoding: string
-          script: |
-            all = "linux/amd64, linux/arm64";
-            canary = "linux/amd64";
-            if (context.eventName === "release") {
-              return all;
-            }
-            if (context.eventName === "release" || context.eventName === "merge_group") {
-              return all;
-            }
-            if (context.eventName === "push") {
-              if (context.ref.startsWith("refs/tags/")) {
-                return all;
-              }
-              if (context.ref === "refs/heads/main") {
-                return all;
-              }
-            }
-            return canary;
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: compute tag
         uses: actions/github-script@v7
@@ -66,6 +47,9 @@ jobs:
         with:
           result-encoding: string
           script: |
+            if (context.eventName === "pull_request") {
+              return "pr-" + context.issue.number;
+            }
             if (context.eventName === "release") {
               return "latest";
             }
@@ -77,15 +61,7 @@ jobs:
                 return "nightly";
               }
             }
-            return "canary";
-
-      - name: log in to the container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
+            return "FALSE";
       - name: extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -94,13 +70,17 @@ jobs:
           tags: |
             # set latest tag for default branch
             type=raw,value={{date 'YYYYMMDD-hhmmss' tz='Europe/Berlin'}}
+            type=ref,event=pr
             type=sha
             type=raw,value=${{steps.compute-tag.outputs.result}}
+            type=raw,value=nightly,enable={{is_default_branch}}
       - name: build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{steps.compute-arch.outputs.result}}
-          push: ${{ github.ref_name == github.event.repository.default_branch }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min

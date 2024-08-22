@@ -7,6 +7,7 @@ use futures::channel::mpsc::{channel, Receiver};
 use futures::executor::block_on;
 use futures::{SinkExt, StreamExt};
 use image::ImageReader;
+use ldap3::tokio::time::{sleep, Duration};
 use notify::event::DataChange::Content;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -30,7 +31,7 @@ pub fn resize_default(config: &Config) {
     );
     let default = binding.as_path();
     if !needs_update(default, path) {
-        log::info!("skipping default");
+        log::debug!("skipping default");
         return;
     }
     let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
@@ -56,11 +57,15 @@ pub fn resize_default(config: &Config) {
             directory.as_path(),
             Vec::default(),
             config.clone(),
+            true,
         );
     });
 }
 
 pub async fn process_directory(directory: &Path, config: &Config) {
+    if !directory.exists() {
+        create_directory(directory);
+    }
     for path in fs::read_dir(directory).unwrap().flatten() {
         process_image(&path.path(), config, false).await;
     }
@@ -75,7 +80,7 @@ pub async fn process_image(path: &Path, config: &Config, force: bool) {
         );
         let image_path = binding.as_path();
         if !force && !needs_update(path, image_path) {
-            log::info!("skipping {}", path.to_str().unwrap());
+            log::debug!("skipping {}", path.to_str().unwrap());
             return;
         }
         handle_image(path, config).await;
@@ -158,11 +163,14 @@ pub async fn handle_image(source: &Path, config: &Config) {
             let alternate_names = get_alternate_names_of(config.clone(), &filename).await;
 
             let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
-            log::info!("processing {}", source.to_str().unwrap());
+            log::debug!("processing {}", source.to_str().unwrap());
             sizes.par_iter().for_each(|size| {
                 let binding = build_path(vec![config.images.clone(), size.to_string()], None);
                 let size_path = binding.as_path();
-                create_directory(size_path);
+                if !size_path.exists() {
+                    log::debug!("creating directory {}", size_path.to_str().unwrap());
+                    create_directory(size_path);
+                }
                 let binding = build_path(
                     vec![config.images.clone(), size.to_string(), md5_hash.clone()],
                     Some(config.extension.clone()),
@@ -180,16 +188,15 @@ pub async fn handle_image(source: &Path, config: &Config) {
                     size_path,
                     alternate_names.clone(),
                     config.clone(),
+                    true,
                 );
                 if config.offer_original_dimensions {
                     let dimensions_path: PathBuf = build_path(
-                        vec![
-                            config.images.clone(),
-                            "original-dimensions".to_string()
-                        ],
-                        None
+                        vec![config.images.clone(), "original-dimensions".to_string()],
+                        None,
                     );
                     if !dimensions_path.exists() {
+                        log::debug!("creating directory {}", dimensions_path.to_str().unwrap());
                         create_directory(dimensions_path.as_path());
                     }
                     let binding = build_path(
@@ -201,6 +208,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                         None,
                     );
                     if !binding.as_path().exists() {
+                        log::debug!("creating directory {}", binding.as_path().to_str().unwrap());
                         create_directory(binding.as_path());
                     }
                     let binding = build_path(
@@ -214,6 +222,11 @@ pub async fn handle_image(source: &Path, config: &Config) {
                     );
 
                     let cache_path = binding.as_path();
+                    log::info!(
+                        "resizing {} to {}",
+                        source.to_str().unwrap(),
+                        cache_path.to_str().unwrap()
+                    );
                     resize_image(
                         source,
                         cache_path,
@@ -221,6 +234,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                         size_path,
                         alternate_names.clone(),
                         config.clone(),
+                        false,
                     );
                 }
             });
@@ -261,11 +275,11 @@ fn lock_image(path: &Path, config: Config) -> Option<String> {
             ],
             Some("lock".to_string()),
         );
-        log::info!("locking {}", path.to_str().unwrap());
+        log::debug!("locking {}", path.to_str().unwrap());
         return if !lock_path.as_path().exists() {
             let content = random::<u64>().to_string();
             fs::write(lock_path, content.clone()).expect("Could not write lock file");
-            log::info!("locked {}", path.to_str().unwrap());
+            log::debug!("locked {}", path.to_str().unwrap());
             Some(content)
         } else {
             log::warn!("Could not lock {}, already locked", path.to_str().unwrap());
@@ -327,6 +341,12 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 pub(crate) async fn watch_directory(path: String, config: &Config) {
     log::info!("watching {}", path);
 
+    let path = Path::new(&path);
+
+    if !path.exists() {
+        create_directory(path);
+    }
+
     if let Err(e) = async_watch(path, config).await {
         log::error!("error: {:?}", e);
     }
@@ -338,6 +358,8 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: &Config) -> notify::Result
     watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
 
     while let Some(res) = rx.next().await {
+        // wait a bit, to avoid being to eager
+        sleep(Duration::from_millis(200 + random::<u64>() % 500)).await;
         match res {
             Ok(event) => match event.kind {
                 notify::EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => {
@@ -376,6 +398,7 @@ fn resize_image(
     directory: &Path,
     alternate_names: Vec<String>,
     config: Config,
+    resize_to_fill: bool,
 ) {
     if !Path::exists(source) {
         log::info!("source does not exist {}", source.to_str().unwrap());
@@ -384,13 +407,18 @@ fn resize_image(
     let img = ImageReader::open(source).unwrap().decode();
     log::debug!("resizing {}", source.to_str().unwrap());
 
-    let result = img
-        .expect("Can't read image")
-        .resize_to_fill(size, size, image::imageops::FilterType::Lanczos3)
-        .save_with_format(
-            destination,
-            image::ImageFormat::from_extension(config.extension.clone()).unwrap(),
-        );
+    let mut image = img.expect("Can't read image");
+
+    if resize_to_fill {
+        image = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);
+    } else {
+        image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
+    }
+
+    let result = image.save_with_format(
+        destination,
+        image::ImageFormat::from_extension(config.extension.clone()).unwrap(),
+    );
     if result.is_err() {
         log::error!(
             "Could not resize image {} and store to {}",
