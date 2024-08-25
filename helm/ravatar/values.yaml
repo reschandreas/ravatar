@@ -52,25 +52,10 @@ ingress:
           pathType: ImplementationSpecific
   tls: [ ]
 
-resources: { }
-
-livenessProbe:
-  httpGet:
-    path: /healthz
-    port: http
-
-autoscaling:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 20
-  targetCPUUtilizationPercentage: 80
-
 dataSource:
   storageClassName: ""
   mountPath: /raw
 
-nodeSelector: { }
-
-tolerations: [ ]
-
-affinity: { }
+resizedImages:
+  storageClassName: ""
+  mountPath: /images
