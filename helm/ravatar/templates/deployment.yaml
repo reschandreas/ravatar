@@ -5,8 +5,10 @@ metadata:
   labels:
     {{- include "ravatar.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
+  {{- if hasKey .Values "autoscaling" }}
+    {{- if not .Values.autoscaling.enabled }}
+    replicas: {{ .Values.replicaCount }}
+    {{- end }}
   {{- end }}
   selector:
     matchLabels:
@@ -73,29 +75,63 @@ spec:
             - name: LDAP_TARGET_ATTRIBUTES
               value: {{ .Values.ravatar.ldap.targetAttributes | quote }}
             {{ end }}
-
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          {{- if .Values.resources }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- else }}
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          {{- end }}
           volumeMounts:
             - name: {{ .Release.Name }}-data-source
               mountPath: {{ .Values.dataSource.mountPath }}
+            {{- if .Values.resizedImages }}
+            - name: {{ .Release.Name }}-resized-images
+              mountPath: {{ .Values.ravatar.generatedImagesPath }}
+            {{- end }}
+            {{ if .Values.volumes }}
+            {{- toYaml .Values.volumes | nindent 12 }}
+            {{- end }}
       volumes:
         - name: {{ .Release.Name }}-data-source
           persistentVolumeClaim:
             claimName: {{ include "ravatar.fullname" . }}-data-source
+        {{- if .Values.resizedImages }}
+        - name: {{ .Release.Name }}-resized-images
+          persistentVolumeClaim:
+            claimName: {{ include "ravatar.fullname" . }}-resized-images
+        {{- end }}
+        {{ if .Values.volumes }}
+        {{- toYaml .Values.volumes | nindent 8 }}
+        {{- end }}
+      {{- if .Values.nodeSelector }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- end }}
+      {{- if .Values.affinity }}
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- end }}
+      {{- if .Values.tolerations }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- end }}

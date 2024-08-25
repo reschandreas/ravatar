@@ -48,7 +48,13 @@ pub(crate) fn get_full_filename(path: &Path) -> String {
 pub(crate) fn get_filename(path: &Path) -> Option<String> {
     let filename = get_full_filename(path);
     if let Some(extension) = get_extension(path) {
-        return Some(filename.replace(format!(".{extension}").as_str(), "").trim().parse().unwrap());
+        return Some(
+            filename
+                .replace(format!(".{extension}").as_str(), "")
+                .trim()
+                .parse()
+                .unwrap(),
+        );
     }
     None
 }

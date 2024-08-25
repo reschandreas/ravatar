@@ -275,17 +275,17 @@ fn lock_image(path: &Path, config: Config) -> Option<String> {
             ],
             Some("lock".to_string()),
         );
-        log::debug!("locking {}", path.to_str().unwrap());
-        return if !lock_path.as_path().exists() {
+        log::debug!("locking {}", path.to_str()?);
+        if !lock_path.as_path().exists() {
             let content = random::<u64>().to_string();
             fs::write(lock_path, content.clone()).expect("Could not write lock file");
             log::debug!("locked {}", path.to_str().unwrap());
             Some(content)
         } else {
-            log::warn!("Could not lock {}, already locked", path.to_str().unwrap());
+            log::warn!("Could not lock {}, already locked", path.to_str()?);
             release_if_old_lock(lock_path.as_path());
             lock_image(path, config)
-        };
+        }
     } else {
         None
     }
