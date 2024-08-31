@@ -6,7 +6,6 @@ use filetime::FileTime;
 use futures::channel::mpsc::{channel, Receiver};
 use futures::executor::block_on;
 use futures::{SinkExt, StreamExt};
-use image::ImageReader;
 use ldap3::tokio::time::{sleep, Duration};
 use notify::event::DataChange::Content;
 use notify::event::{ModifyKind, RenameMode};
@@ -75,7 +74,7 @@ pub async fn process_image(path: &Path, config: &Config, force: bool) {
     create_directory(Path::new(&config.images));
     if let Some(filename) = get_filename(path) {
         let binding = build_path(
-            vec![config.images.to_string(), 512.to_string(), filename],
+            vec![config.images.to_string(), 1024.to_string(), filename],
             Some(config.extension.clone()),
         );
         let image_path = binding.as_path();
@@ -107,7 +106,7 @@ pub async fn evacuate_image(path: &Path, config: &Config) {
             return;
         }
         let md5_hash = md5(&filename);
-        println!("gotta clean up {} and all other links", md5_hash);
+        log::info!("cleaning up {} and all other links", md5_hash);
         let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512];
         let mut alternate_names = Vec::new();
         if config.ldap.is_some() {
@@ -116,27 +115,42 @@ pub async fn evacuate_image(path: &Path, config: &Config) {
         alternate_names.push(sha256(&filename));
         sizes.iter().for_each(|size| {
             let size_path = build_path(vec![config.images.clone(), size.to_string()], None);
-            let cache_path = build_path(
-                vec![size_path.to_str().unwrap().to_string(), md5_hash.clone()],
-                Some(config.extension.clone()),
-            );
-            for name in alternate_names.clone() {
-                let link_path = build_path(
-                    vec![size_path.to_str().unwrap().to_string(), name],
-                    Some(config.extension.clone()),
+            cleanup_image(config, size_path, md5_hash.clone(), alternate_names.clone());
+            if config.offer_original_dimensions {
+                let binding = build_path(
+                    vec![
+                        config.images.clone(),
+                        "original-dimensions".to_string(),
+                        size.to_string(),
+                    ],
+                    None,
                 );
-                if link_path.as_path().exists() {
-                    fs::remove_file(link_path).expect("Could not delete link");
-                } else {
-                    log::info!("link not found {}", link_path.to_str().unwrap());
-                }
-            }
-            if cache_path.as_path().exists() {
-                fs::remove_file(cache_path).expect("Could not delete file");
-            } else {
-                log::info!("file not found {}", cache_path.to_str().unwrap());
+                cleanup_image(config, binding, md5_hash.clone(), alternate_names.clone());
             }
         });
+    }
+}
+
+fn cleanup_image(config: &Config, path_prefix: PathBuf, md5_hash: String, names: Vec<String>) {
+    let cache_path = build_path(
+        vec![path_prefix.to_str().unwrap().to_string(), md5_hash.clone()],
+        Some(config.extension.clone()),
+    );
+    for name in names.clone() {
+        let link_path = build_path(
+            vec![path_prefix.to_str().unwrap().to_string(), name],
+            Some(config.extension.clone()),
+        );
+        if link_path.as_path().exists() {
+            fs::remove_file(link_path).expect("Could not delete link");
+        } else {
+            log::info!("link not found {}", link_path.to_str().unwrap());
+        }
+    }
+    if cache_path.as_path().exists() {
+        fs::remove_file(cache_path).expect("Could not delete file");
+    } else {
+        log::info!("file not found {}", cache_path.to_str().unwrap());
     }
 }
 
@@ -164,7 +178,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
 
             let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
             log::debug!("processing {}", source.to_str().unwrap());
-            sizes.par_iter().for_each(|size| {
+            let was_resized = sizes.par_iter().map(|size| {
                 let binding = build_path(vec![config.images.clone(), size.to_string()], None);
                 let size_path = binding.as_path();
                 if !size_path.exists() {
@@ -179,7 +193,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                 let cache_path = binding.as_path();
 
                 if !needs_update(source, cache_path) {
-                    return;
+                    return false;
                 }
                 resize_image(
                     source,
@@ -222,7 +236,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                     );
 
                     let cache_path = binding.as_path();
-                    log::info!(
+                    log::debug!(
                         "resizing {} to {}",
                         source.to_str().unwrap(),
                         cache_path.to_str().unwrap()
@@ -237,8 +251,11 @@ pub async fn handle_image(source: &Path, config: &Config) {
                         false,
                     );
                 }
+                true
             });
-            log::info!("resized {} in {:?}", filename, before.elapsed());
+            if was_resized.any(|x| x) {
+                log::info!("resized {} in {:?}", filename, before.elapsed());
+            }
         }
         unlock_image(source, config.clone(), lock);
     }
@@ -404,10 +421,20 @@ fn resize_image(
         log::info!("source does not exist {}", source.to_str().unwrap());
         return;
     }
-    let img = ImageReader::open(source).unwrap().decode();
     log::debug!("resizing {}", source.to_str().unwrap());
+    let image_res = image::ImageReader::open(source);
+    if image_res.is_err() {
+        log::error!("Could not open image {}", source.to_str().unwrap());
+        return;
+    }
+    let mut image = match image_res.unwrap().decode() {
+        Ok(image) => image,
+        Err(err) => {
+            log::error!("Failed to decode image: {} {}", err, source.to_str().unwrap());
+            return;
+        }
+    };
 
-    let mut image = img.expect("Can't read image");
 
     if resize_to_fill {
         image = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);
