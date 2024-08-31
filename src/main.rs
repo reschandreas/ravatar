@@ -29,7 +29,7 @@ async fn main() -> std::io::Result<()> {
     let cloned_config = state.config.clone();
     tokio::spawn(async move {
         loop {
-            log::info!("starting periodic check");
+            log::debug!("starting periodic check");
             let binding = cloned_config.raw.clone();
             let raw_path = Path::new(binding.as_str());
             resize_default(&cloned_config);
@@ -39,11 +39,11 @@ async fn main() -> std::io::Result<()> {
     });
     let cloned_config = state.config.clone();
     tokio::spawn(async move {
-        log::info!("starting watch");
+        log::debug!("starting watch");
         let raw_path = cloned_config.raw.clone();
         watch_directory(raw_path, &cloned_config.clone()).await;
     });
-    println!("Starting server at http://{host}:{port}");
+    log::info!("Starting server at http://{host}:{port}");
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default().exclude("/healthz"))
