@@ -8,6 +8,7 @@ ravatar:
   prefix: "/avatar"
   host: "0.0.0.0"
   imageExtension: "png"
+  mmExtension: "png"
   port: 8080
   rawImagesPath: "/raw"
   generatedImagesPath: "/images"

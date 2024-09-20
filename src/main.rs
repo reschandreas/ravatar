@@ -96,7 +96,7 @@ async fn avatar(
     path_parts.push(mail_hash.clone());
     let mut path = build_path(path_parts, Some(config.extension.clone()));
     if !path.exists() || read_force_default(query) {
-        log::debug!("not found {mail_hash}, size {size}, serving {default}");
+        log::info!("not found {mail_hash}, size {size}, serving {default}");
         match default.as_str() {
             "404" => {
                 return HttpResponse::NotFound().finish();

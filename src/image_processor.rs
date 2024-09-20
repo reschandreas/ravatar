@@ -20,13 +20,13 @@ use std::{fs, vec};
 pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
     let binding = build_path(
-        vec![config.images.clone(), 512.to_string(), "mm".to_string()],
-        Some(config.extension.clone()),
+        vec![config.images.clone(), 1024.to_string(), "mm".to_string()],
+        Some(config.mm_extension.clone()),
     );
     let path = binding.as_path();
     let binding = build_path(
         vec!["default".to_string(), "mm".to_string()],
-        Some(config.extension.clone()),
+        Some(config.mm_extension.clone()),
     );
     let default = binding.as_path();
     if !needs_update(default, path) {
@@ -36,29 +36,31 @@ pub fn resize_default(config: &Config) {
     let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
     let extension = config.extension.clone();
     let image_path = config.images.clone();
-    let source_binding = build_path(
-        vec!["default".to_string(), "mm.".to_string()],
-        Some(extension.clone()),
-    );
-    sizes.par_iter().for_each(|size| {
-        let directory = build_path(vec![image_path.clone(), size.to_string()], None);
-        create_directory(directory.as_path());
-        let binding = build_path(
-            vec![image_path.clone(), size.to_string(), "mm".to_string()],
+    for name in vec!["mm", "default"] {
+        let source_binding = build_path(
+            vec!["default".to_string(), name.to_string()],
             Some(extension.clone()),
         );
-        let source_path = source_binding.as_path();
-        let path = binding.as_path();
-        resize_image(
-            source_path,
-            path,
-            *size,
-            directory.as_path(),
-            Vec::default(),
-            config.clone(),
-            true,
-        );
-    });
+        sizes.par_iter().for_each(|size| {
+            let directory = build_path(vec![image_path.clone(), size.to_string()], None);
+            create_directory(directory.as_path());
+            let binding = build_path(
+                vec![image_path.clone(), size.to_string(), name.to_string()],
+                Some(extension.clone()),
+            );
+            let source_path = source_binding.as_path();
+            let path = binding.as_path();
+            resize_image(
+                source_path,
+                path,
+                *size,
+                directory.as_path(),
+                Vec::default(),
+                config.clone(),
+                true,
+            );
+        });
+    }
 }
 
 pub async fn process_directory(directory: &Path, config: &Config) {
@@ -191,18 +193,17 @@ pub async fn handle_image(source: &Path, config: &Config) {
 
                 let cache_path = binding.as_path();
 
-                if !needs_update(source, cache_path) {
-                    return false;
+                if needs_update(source, cache_path) {
+                    resize_image(
+                        source,
+                        cache_path,
+                        *size,
+                        size_path,
+                        alternate_names.clone(),
+                        config.clone(),
+                        true,
+                    );
                 }
-                resize_image(
-                    source,
-                    cache_path,
-                    *size,
-                    size_path,
-                    alternate_names.clone(),
-                    config.clone(),
-                    true,
-                );
                 if config.offer_original_dimensions {
                     let dimensions_path: PathBuf = build_path(
                         vec![config.images.clone(), "original-dimensions".to_string()],
@@ -240,17 +241,20 @@ pub async fn handle_image(source: &Path, config: &Config) {
                         source.to_str().unwrap(),
                         cache_path.to_str().unwrap()
                     );
-                    resize_image(
-                        source,
-                        cache_path,
-                        *size,
-                        size_path,
-                        alternate_names.clone(),
-                        config.clone(),
-                        false,
-                    );
+                    if needs_update(source, cache_path) {
+                        resize_image(
+                            source,
+                            cache_path,
+                            *size,
+                            binding.as_path(),
+                            alternate_names.clone(),
+                            config.clone(),
+                            false,
+                        );
+                        return true;
+                    }
                 }
-                true
+                false
             });
             if was_resized.any(|x| x) {
                 log::info!("resized {} in {:?}", filename, before.elapsed());
@@ -266,13 +270,20 @@ pub fn create_links_for_image(
     source: &Path,
     alternate_names: Vec<String>,
 ) {
+    if !Path::exists(directory) {
+        create_directory(directory);
+    }
     for name in alternate_names {
         let link_path = build_path(
             vec![directory.to_str().unwrap().parse().unwrap(), name],
             Some(config.extension.clone()),
         );
         if !link_path.as_path().exists() {
-            log::info!("linking {} to {}", source.to_str().unwrap(), link_path.to_str().unwrap());
+            log::debug!(
+                "linking {} to {}",
+                source.to_str().unwrap(),
+                link_path.to_str().unwrap()
+            );
             fs::hard_link(source, link_path.as_path()).unwrap();
         }
     }
@@ -430,11 +441,14 @@ fn resize_image(
     let mut image = match image_res.unwrap().decode() {
         Ok(image) => image,
         Err(err) => {
-            log::error!("Failed to decode image: {} {}", err, source.to_str().unwrap());
+            log::error!(
+                "Failed to decode image: {} {}",
+                err,
+                source.to_str().unwrap()
+            );
             return;
         }
     };
-
 
     if resize_to_fill {
         image = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);

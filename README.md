@@ -26,6 +26,7 @@ docker run -p 8080:8080 -v /path/to/images:/raw ghcr.io/reschandreas/ravatar:lat
 | `HOST`                      | The host of the server                                                  | `0.0.0.0` |
 | `PORT`                      | The port of the server                                                  | `8080`    |
 | `EXTENSION`                 | The extension of the images                                             | `png`     |
+| `MM_EXTENSION`              | The extension of default and mm image                                   | `png`     | 
 | `RAW_PATH`                  | The path to the raw images                                              | `/raw`    |
 | `IMAGES_PATH`               | The path to the generated images                                        | `/images` |
 | `LOG_LEVEL`                 | The log level of the server                                             | `info`    |
