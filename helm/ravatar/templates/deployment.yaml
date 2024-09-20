@@ -51,6 +51,8 @@ spec:
               value: {{ .Values.ravatar.port | default 8080 | quote }}
             - name: EXTENSION
               value: {{ .Values.ravatar.imageExtension | default "png" | quote }}
+            - name: MM_EXTENSION
+              value: {{ .Values.ravatar.mmExtension | default "png" | quote }}
             - name: RAW_PATH
               value: {{ .Values.ravatar.rawImagesPath | default "/raw"| quote }}
             - name: IMAGES_PATH
@@ -64,8 +66,6 @@ spec:
               value: {{ .Values.ravatar.ldap.url | quote }}
             - name: LDAP_BIND_USERNAME
               value: {{ .Values.ravatar.ldap.bindUsername | quote }}
-            - name: LDAP_BIND_PASSWORD
-              value: {{ .Values.ravatar.ldap.bindPassword | quote }}
             - name: LDAP_BASE_DN
               value: {{ .Values.ravatar.ldap.baseDN | quote }}
             - name: LDAP_SEARCH_FILTER
@@ -75,6 +75,17 @@ spec:
             - name: LDAP_TARGET_ATTRIBUTES
               value: {{ .Values.ravatar.ldap.targetAttributes | quote }}
             {{ end }}
+          {{- if or .Values.ravatar.ldap.enabled .Values.envFrom }}
+          envFrom:
+            {{- if and .Values.ravatar.ldap.enabled }}
+            - secretRef:
+                #key should be LDAP_BIND_PASSWORD
+                name: {{ include "ravatar.fullname" . }}-ldap-password
+            {{- end }}
+            {{- if .Values.envFrom }}
+            {{- toYaml .Values.envFrom | nindent 12 }}
+            {{- end }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /healthz

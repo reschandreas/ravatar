@@ -10,6 +10,7 @@ pub(crate) fn read_config() -> Config {
     let raw = env::var("RAW_PATH").unwrap_or("./raw".into());
     let images = env::var("IMAGES_PATH").unwrap_or("./images".into());
     let extension = env::var("EXTENSION").unwrap_or("png".into());
+    let mm_extension = env::var("MM_EXTENSION").unwrap_or("png".into());
     let host = env::var("HOST").unwrap_or("0.0.0.0".into());
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
     let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
@@ -48,6 +49,7 @@ pub(crate) fn read_config() -> Config {
         images,
         raw,
         extension,
+        mm_extension,
         log_level,
         ldap,
         offer_original_dimensions,
