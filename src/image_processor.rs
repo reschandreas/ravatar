@@ -19,31 +19,33 @@ use std::{fs, vec};
 
 pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
+    let extension = config.mm_extension.clone();
     let binding = build_path(
         vec![config.images.clone(), 1024.to_string(), "mm".to_string()],
-        Some(config.mm_extension.clone()),
+        Some(extension.clone()),
     );
     let path = binding.as_path();
     let binding = build_path(
         vec!["default".to_string(), "mm".to_string()],
-        Some(config.mm_extension.clone()),
+        Some(extension.clone()),
     );
     let default = binding.as_path();
     if !needs_update(default, path) {
         log::debug!("skipping default");
         return;
     }
-    let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
-    let extension = config.extension.clone();
+    let sizes: Vec<u32> = vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
     let image_path = config.images.clone();
-    for name in vec!["mm", "default"] {
+    for name in vec!["mm"] {
         let source_binding = build_path(
             vec!["default".to_string(), name.to_string()],
             Some(extension.clone()),
         );
         sizes.par_iter().for_each(|size| {
             let directory = build_path(vec![image_path.clone(), size.to_string()], None);
-            create_directory(directory.as_path());
+            if !directory.as_path().exists() {
+                create_directory(directory.as_path());
+            }
             let binding = build_path(
                 vec![image_path.clone(), size.to_string(), name.to_string()],
                 Some(extension.clone()),
@@ -109,7 +111,7 @@ pub async fn evacuate_image(path: &Path, config: &Config) {
         }
         let md5_hash = md5(&filename);
         log::info!("cleaning up {} and all other links", md5_hash);
-        let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
+        let sizes: Vec<u32> = vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
         let mut alternate_names = Vec::new();
         if config.ldap.is_some() {
             alternate_names = get_alternate_names_of(config.clone(), &filename).await;
@@ -177,9 +179,9 @@ pub async fn handle_image(source: &Path, config: &Config) {
             // let's find some more names for this image
             let alternate_names = get_alternate_names_of(config.clone(), &filename).await;
 
-            let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
+            let sizes: Vec<u32> = vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
             log::debug!("processing {}", source.to_str().unwrap());
-            let was_resized = sizes.par_iter().map(|size| {
+            let was_resized: Vec<bool> = sizes.par_iter().map(|size| {
                 let binding = build_path(vec![config.images.clone(), size.to_string()], None);
                 let size_path = binding.as_path();
                 if !size_path.exists() {
@@ -194,6 +196,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                 let cache_path = binding.as_path();
 
                 if needs_update(source, cache_path) {
+                    log::debug!("resizing {} to {}", source.to_str().unwrap(), size);
                     resize_image(
                         source,
                         cache_path,
@@ -213,7 +216,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                         log::debug!("creating directory {}", dimensions_path.to_str().unwrap());
                         create_directory(dimensions_path.as_path());
                     }
-                    let binding = build_path(
+                    let directory_binding = build_path(
                         vec![
                             config.images.clone(),
                             "original-dimensions".to_string(),
@@ -221,9 +224,9 @@ pub async fn handle_image(source: &Path, config: &Config) {
                         ],
                         None,
                     );
-                    if !binding.as_path().exists() {
-                        log::debug!("creating directory {}", binding.as_path().to_str().unwrap());
-                        create_directory(binding.as_path());
+                    if !directory_binding.as_path().exists() {
+                        log::debug!("creating directory {}", directory_binding.as_path().to_str().unwrap());
+                        create_directory(directory_binding.as_path());
                     }
                     let binding = build_path(
                         vec![
@@ -246,7 +249,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                             source,
                             cache_path,
                             *size,
-                            binding.as_path(),
+                            directory_binding.as_path(),
                             alternate_names.clone(),
                             config.clone(),
                             false,
@@ -255,8 +258,8 @@ pub async fn handle_image(source: &Path, config: &Config) {
                     }
                 }
                 false
-            });
-            if was_resized.any(|x| x) {
+            }).collect();
+            if was_resized.iter().any(|x| *x) {
                 log::info!("resized {} in {:?}", filename, before.elapsed());
             }
         }
@@ -274,6 +277,13 @@ pub fn create_links_for_image(
         create_directory(directory);
     }
     for name in alternate_names {
+        let target_directory = build_path(
+            vec![directory.to_str().unwrap().parse().unwrap()],
+            None,
+        );
+        if !Path::exists(target_directory.as_path()) {
+            create_directory(target_directory.as_path());
+        }
         let link_path = build_path(
             vec![directory.to_str().unwrap().parse().unwrap(), name],
             Some(config.extension.clone()),
@@ -284,7 +294,14 @@ pub fn create_links_for_image(
                 source.to_str().unwrap(),
                 link_path.to_str().unwrap()
             );
-            fs::hard_link(source, link_path.as_path()).unwrap();
+            let result = fs::hard_link(source, link_path.as_path());
+            if result.is_err() {
+                log::error!(
+                    "Could not create link {} to {}",
+                    source.to_str().unwrap(),
+                    link_path.to_str().unwrap()
+                );
+            }
         }
     }
 }
