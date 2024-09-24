@@ -49,7 +49,8 @@ pub(crate) async fn get_attributes_with_filter(config: Config, input: &str) -> O
         for target_attribute in ldap_config.target_attributes.clone() {
             if let Some(value) = matched.attrs.get(&target_attribute) {
                 results.push(value[0].clone());
-                log::info!("{} is also known as {}", input, value[0]);
+                results.push(value[0].clone().to_ascii_lowercase());
+                log::debug!("{} is also known as {}, adding lowercase as well", input, value[0]);
             }
         }
     }
