@@ -19,14 +19,15 @@ use std::{fs, vec};
 
 pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
+    let extension = config.mm_extension.clone();
     let binding = build_path(
         vec![config.images.clone(), 1024.to_string(), "mm".to_string()],
-        Some(config.mm_extension.clone()),
+        Some(extension.clone()),
     );
     let path = binding.as_path();
     let binding = build_path(
         vec!["default".to_string(), "mm".to_string()],
-        Some(config.mm_extension.clone()),
+        Some(extension.clone()),
     );
     let default = binding.as_path();
     if !needs_update(default, path) {
@@ -34,7 +35,6 @@ pub fn resize_default(config: &Config) {
         return;
     }
     let sizes: Vec<u32> = vec![16, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
-    let extension = config.extension.clone();
     let image_path = config.images.clone();
     for name in vec!["mm", "default"] {
         let source_binding = build_path(
