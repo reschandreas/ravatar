@@ -31,6 +31,7 @@ docker run -p 8080:8080 -v /path/to/images:/raw ghcr.io/reschandreas/ravatar:lat
 | `IMAGES_PATH`               | The path to the generated images                                        | `/images` |
 | `LOG_LEVEL`                 | The log level of the server                                             | `info`    |
 | `OFFER_ORIGINAL_DIMENSIONS` | Offer the image with its original dimensions instead of resized to fill | `false`   |
+ | `DEFAULT_FORMAT`            | The default format of the image, "square" or "original"                | `square`  | 
 
 If you want to serve an image with another identifier than the filename, i.e. the email address, you can use
 LDAP to match the filename to other identifiers from your active directory. The configuration relies

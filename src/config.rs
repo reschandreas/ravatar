@@ -14,10 +14,21 @@ pub(crate) fn read_config() -> Config {
     let host = env::var("HOST").unwrap_or("0.0.0.0".into());
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
     let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
-    let offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
+    let mut offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
         .unwrap_or("false".into())
         .parse()
         .unwrap();
+    let default_format = env::var("DEFAULT_FORMAT").unwrap_or("square".into());
+    if default_format.eq("square") {
+        log::info!("DEFAULT_FORMAT is set to square, this is the default behavior");
+    } else if default_format.eq("original") {
+        log::info!("DEFAULT_FORMAT is set to original, this will offer the original image per default, use original_dimensions=false to disable");
+    } else {
+        log::warn!("DEFAULT_FORMAT is set to an unknown value, defaulting to square");
+    }
+    if default_format.eq("original") {
+        offer_original_dimensions = true;
+    }
     let mut ldap: Option<LdapConfig> = None;
     if let Ok(ldap_url) = env::var("LDAP_URL") {
         let ldap_bind_username = env::var("LDAP_BIND_USERNAME").unwrap_or("".into());
@@ -50,6 +61,7 @@ pub(crate) fn read_config() -> Config {
         raw,
         extension,
         mm_extension,
+        default_original_dimensions: default_format.eq("original"),
         log_level,
         ldap,
         offer_original_dimensions,

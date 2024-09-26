@@ -36,11 +36,15 @@ pub fn resize_default(config: &Config) {
     }
     let sizes: Vec<u32> = vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024];
     let image_path = config.images.clone();
-    for name in vec!["mm"] {
+    for name in ["mm", "default"] {
         let source_binding = build_path(
             vec!["default".to_string(), name.to_string()],
             Some(extension.clone()),
         );
+        if !source_binding.as_path().exists() {
+            log::warn!("source does not exist {}", source_binding.to_str().unwrap());
+            continue;
+        }
         sizes.par_iter().for_each(|size| {
             let directory = build_path(vec![image_path.clone(), size.to_string()], None);
             if !directory.as_path().exists() {
