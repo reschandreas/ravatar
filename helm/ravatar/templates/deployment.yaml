@@ -53,6 +53,8 @@ spec:
               value: {{ .Values.ravatar.imageExtension | default "png" | quote }}
             - name: MM_EXTENSION
               value: {{ .Values.ravatar.mmExtension | default "png" | quote }}
+            - name: DEFAULT_FORMAT
+              value: {{ .Values.ravatar.defaultFormat | default "square" | quote }}
             - name: RAW_PATH
               value: {{ .Values.ravatar.rawImagesPath | default "/raw"| quote }}
             - name: IMAGES_PATH

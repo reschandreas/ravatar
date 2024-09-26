@@ -9,6 +9,7 @@ ravatar:
   host: "0.0.0.0"
   imageExtension: "png"
   mmExtension: "png"
+  defaultFormat: "square"
   port: 8080
   rawImagesPath: "/raw"
   generatedImagesPath: "/images"
