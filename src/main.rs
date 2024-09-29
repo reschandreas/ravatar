@@ -89,7 +89,7 @@ async fn avatar(
     let default: String = read_default(query.clone());
     log::debug!("serving {mail_hash}, size {size}");
     let mut path_parts = vec![cache_dir.clone()];
-    let mut serve_original_size = config.default_original_dimensions;
+    let mut serve_original_size = config.default_format.eq(&structs::Format::Original);
 
     if query.original_dimensions.is_some() && !query.original_dimensions.unwrap() {
         serve_original_size = false;

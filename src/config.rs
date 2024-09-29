@@ -1,6 +1,13 @@
-use crate::structs::{Config, ImageRequest, LdapConfig};
+use std::cmp::PartialEq;
+use crate::structs::{Config, Format, ImageRequest, LdapConfig};
 use actix_web::web::Query;
 use std::env;
+
+impl PartialEq for Format {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
 
 /**
  * Read the configuration from the environment variables
@@ -18,16 +25,23 @@ pub(crate) fn read_config() -> Config {
         .unwrap_or("false".into())
         .parse()
         .unwrap();
-    let default_format = env::var("DEFAULT_FORMAT").unwrap_or("square".into());
-    if default_format.eq("square") {
+    let default_format: Format = match env::var("DEFAULT_FORMAT").unwrap_or("square".into()).as_str() {
+        "square" => Format::Square,
+        "original" => Format::Original,
+        "center" => Format::Center,
+        _ => Format::Square,
+    };
+    if default_format == Format::Original {
+        offer_original_dimensions = true;
+    }
+    if default_format == Format::Original {
         log::info!("DEFAULT_FORMAT is set to square, this is the default behavior");
-    } else if default_format.eq("original") {
+    } else if default_format == Format::Original {
         log::info!("DEFAULT_FORMAT is set to original, this will offer the original image per default, use original_dimensions=false to disable");
+    } else if default_format == Format::Center {
+        log::info!("DEFAULT_FORMAT is set to center, this will detect the face and center it in the image");
     } else {
         log::warn!("DEFAULT_FORMAT is set to an unknown value, defaulting to square");
-    }
-    if default_format.eq("original") {
-        offer_original_dimensions = true;
     }
     let mut ldap: Option<LdapConfig> = None;
     if let Ok(ldap_url) = env::var("LDAP_URL") {
@@ -61,10 +75,12 @@ pub(crate) fn read_config() -> Config {
         raw,
         extension,
         mm_extension,
-        default_original_dimensions: default_format.eq("original"),
+        default_format,
         log_level,
         ldap,
         offer_original_dimensions,
+        // sizes : vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
+        sizes : vec![1024],
     }
 }
 
