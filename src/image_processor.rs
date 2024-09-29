@@ -454,7 +454,7 @@ fn resize_image(
     if image.width() != image.height() {
         log::info!("Image is not square, cropping to square and centering face");
         if let Some(face) = detect_face_in_image(source) {
-            log::info!("Found face in image {} at {:?}", source.to_str().unwrap(), face);
+            log::debug!("Found face in image {} at {:?}", source.to_str().unwrap(), face);
             let face_x = face.left;
             let face_y = face.top;
             let face_width = face.right - face.left;

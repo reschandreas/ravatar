@@ -31,12 +31,10 @@ pub(crate) fn read_config() -> Config {
         "center" => Format::Center,
         _ => Format::Square,
     };
-    if default_format == Format::Original {
-        offer_original_dimensions = true;
-    }
-    if default_format == Format::Original {
+    if default_format == Format::Square {
         log::info!("DEFAULT_FORMAT is set to square, this is the default behavior");
     } else if default_format == Format::Original {
+        offer_original_dimensions = true;
         log::info!("DEFAULT_FORMAT is set to original, this will offer the original image per default, use original_dimensions=false to disable");
     } else if default_format == Format::Center {
         log::info!("DEFAULT_FORMAT is set to center, this will detect the face and center it in the image");
