@@ -21,8 +21,13 @@ pub(crate) fn read_config() -> Config {
     let host = env::var("HOST").unwrap_or("0.0.0.0".into());
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
     let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
-    let mut offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
-        .unwrap_or("false".into())
+    let mut formats: Vec<Format> = vec![Format::Square];
+    let offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
+        .unwrap_or("true".into())
+        .parse()
+        .unwrap();
+    let offer_centered: bool = env::var("OFFER_FACE_CENTERED_IMAGE")
+        .unwrap_or("true".into())
         .parse()
         .unwrap();
     let default_format: Format = match env::var("DEFAULT_FORMAT").unwrap_or("square".into()).as_str() {
@@ -31,13 +36,20 @@ pub(crate) fn read_config() -> Config {
         "center" => Format::Center,
         _ => Format::Square,
     };
+    if offer_centered || default_format == Format::Center {
+        formats.push(Format::Center);
+    }
+    if offer_original_dimensions || default_format == Format::Original {
+        formats.push(Format::Original);
+    }
     if default_format == Format::Square {
         log::info!("DEFAULT_FORMAT is set to square, this is the default behavior");
     } else if default_format == Format::Original {
-        offer_original_dimensions = true;
-        log::info!("DEFAULT_FORMAT is set to original, this will offer the original image per default, use original_dimensions=false to disable");
-    } else if default_format == Format::Center {
-        log::info!("DEFAULT_FORMAT is set to center, this will detect the face and center it in the image");
+        log::info!("DEFAULT_FORMAT is set to original, this will offer the original image per default, use format=square to disable");
+        formats.push(Format::Original);
+    }
+    if default_format == Format::Center {
+        log::info!("DEFAULT_FORMAT is set to center, this will detect the face and center it in the image, if the image is not squared already");
     } else {
         log::warn!("DEFAULT_FORMAT is set to an unknown value, defaulting to square");
     }
@@ -76,9 +88,8 @@ pub(crate) fn read_config() -> Config {
         default_format,
         log_level,
         ldap,
-        offer_original_dimensions,
-        // sizes : vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
-        sizes : vec![1024],
+        formats,
+        sizes : vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
     }
 }
 

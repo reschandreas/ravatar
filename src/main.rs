@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::config::{read_config, read_default, read_force_default, read_size};
 use crate::image_processor::{process_directory, resize_default, watch_directory};
-use crate::structs::{AppState, Config, ImageRequest};
+use crate::structs::{AppState, Config, Format, ImageRequest};
 use crate::utils::{build_path, md5, sha256};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
@@ -89,19 +89,25 @@ async fn avatar(
     let default: String = read_default(query.clone());
     log::debug!("serving {mail_hash}, size {size}");
     let mut path_parts = vec![cache_dir.clone()];
-    let mut serve_original_size = config.default_format.eq(&structs::Format::Original);
+    let format_to_serve = match query.format.clone() {
+        None => config.default_format,
+        Some(value) => {
+            match value.as_str() {
+                "square" => Format::Square,
+                "original" => Format::Original,
+                "center" =>  Format::Center,
+                _ => config.default_format
+            }
+        }
+    };
+    path_parts.push(format_to_serve.as_str().to_string());
 
-    if query.original_dimensions.is_some() && !query.original_dimensions.unwrap() {
-        serve_original_size = false;
-    }
-    if serve_original_size {
-        path_parts.push("original-dimensions".to_string());
-    }
     path_parts.push(size.to_string());
     path_parts.push(mail_hash.clone());
+
     let mut path = build_path(path_parts, Some(config.extension.clone()));
     if !path.exists() || read_force_default(query) {
-        log::info!("not found {mail_hash}, size {size}, serving {default}");
+        log::info!("could not find {mail_hash}, size {size}, serving {default}");
         match default.as_str() {
             "404" => {
                 return HttpResponse::NotFound().finish();

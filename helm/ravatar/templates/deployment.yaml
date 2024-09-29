@@ -63,6 +63,8 @@ spec:
               value: {{ .Values.ravatar.logLevel | default "info" | quote }}
             - name: OFFER_ORIGINAL_DIMENSIONS
               value: {{ .Values.ravatar.offerOriginalDimensions | default false | quote }}
+            - name: OFFER_FACE_CENTERED_IMAGE
+              value: {{ .Values.ravatar.offerFaceCenteredImage | default false | quote }}
             {{ if .Values.ravatar.ldap.enabled }}
             - name: LDAP_URL
               value: {{ .Values.ravatar.ldap.url | quote }}

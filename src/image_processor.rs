@@ -16,6 +16,7 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, vec};
+use crate::structs::Format::Square;
 
 pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
@@ -45,10 +46,10 @@ pub fn resize_default(config: &Config) {
             continue;
         }
         config.sizes.par_iter().for_each(|size| {
-            let directory = build_path(vec![image_path.clone(), Format::Square.as_str().parse().unwrap(), size.to_string()], None);
+            let directory = build_path(vec![image_path.clone(), Square.as_str().parse().unwrap(), size.to_string()], None);
             create_directory(directory.as_path());
             let binding = build_path(
-                vec![image_path.clone(), Format::Square.as_str().parse().unwrap(), size.to_string(), name.to_string()],
+                vec![image_path.clone(), Square.as_str().parse().unwrap(), size.to_string(), name.to_string()],
                 Some(extension.clone()),
             );
             let source_path = source_binding.as_path();
@@ -60,7 +61,8 @@ pub fn resize_default(config: &Config) {
                 directory.as_path(),
                 Vec::default(),
                 config.clone(),
-                true,
+                &Square,
+                None
             );
         });
     }
@@ -117,17 +119,17 @@ pub async fn evacuate_image(path: &Path, config: &Config) {
         config.sizes.iter().for_each(|size| {
             let size_path = build_path(vec![config.images.clone(), size.to_string()], None);
             cleanup_image(config, size_path, md5_hash.clone(), alternate_names.clone());
-            if config.offer_original_dimensions {
+            config.formats.par_iter().for_each(|format| {
                 let binding = build_path(
                     vec![
                         config.images.clone(),
-                        "original-dimensions".to_string(),
+                        format.as_str().to_string(),
                         size.to_string(),
                     ],
                     None,
                 );
                 cleanup_image(config, binding, md5_hash.clone(), alternate_names.clone());
-            }
+            });
         });
     }
 }
@@ -137,7 +139,7 @@ fn cleanup_image(config: &Config, path_prefix: PathBuf, md5_hash: String, names:
         vec![path_prefix.to_str().unwrap().to_string(), md5_hash.clone()],
         Some(config.extension.clone()),
     );
-    for name in names.clone() {
+    for name in names {
         let link_path = build_path(
             vec![path_prefix.to_str().unwrap().to_string(), name],
             Some(config.extension.clone()),
@@ -175,81 +177,66 @@ pub async fn handle_image(source: &Path, config: &Config) {
         if let Some(filename) = get_filename(source) {
             let md5_hash = md5(&filename);
             // let's find some more names for this image
-            let alternate_names = get_alternate_names_of(config.clone(), &filename).await;
 
             log::debug!("processing {}", source.to_str().unwrap());
-            let was_resized: Vec<bool> = config.sizes.par_iter().map(|size| {
-                let binding = build_path(vec![config.images.clone(), Format::Square.as_str().parse().unwrap(), size.to_string()], None);
-                let size_path = binding.as_path();
-                create_directory(size_path);
-                let binding = build_path(
-                    vec![config.images.clone(), Format::Square.as_str().parse().unwrap(), size.to_string(), md5_hash.clone()],
-                    Some(config.extension.clone()),
-                );
-
-                let cache_path = binding.as_path();
-
-                if needs_update(source, cache_path) {
-                    log::debug!("resizing {} to {}", source.to_str().unwrap(), size);
-                    resize_image(
-                        source,
-                        cache_path,
-                        *size,
-                        size_path,
-                        alternate_names.clone(),
-                        config.clone(),
-                        true,
-                    );
-                }
-                if config.offer_original_dimensions {
-                    let directory_binding = build_path(
-                        vec![
-                            config.images.clone(),
-                            Format::Original.as_str().parse().unwrap(),
-                            size.to_string(),
-                        ],
-                        None,
-                    );
-
-                    create_directory(directory_binding.as_path());
-
-                    let binding = build_path(
-                        vec![
-                            config.images.clone(),
-                            Format::Original.as_str().parse().unwrap(),
-                            size.to_string(),
-                            md5_hash.clone(),
-                        ],
-                        Some(config.extension.clone()),
-                    );
-
-                    let cache_path = binding.as_path();
-                    log::debug!(
-                        "resizing {} to {}",
-                        source.to_str().unwrap(),
-                        cache_path.to_str().unwrap()
-                    );
-                    if needs_update(source, cache_path) {
-                        resize_image(
-                            source,
-                            cache_path,
-                            *size,
-                            directory_binding.as_path(),
-                            alternate_names.clone(),
-                            config.clone(),
-                            false,
-                        );
-                        return true;
+            let mut face_data: Option<FaceLocation> = None;
+            if config.formats.contains(&Format::Center) {
+                let random_size = config.sizes.last().unwrap().clone();
+                let path = build_path(vec![config.images.clone(), Format::Center.as_str().to_string(), random_size.to_string(), md5_hash.clone()], Some(config.extension.clone()));
+                if needs_update(source, path.as_path()) {
+                    face_data = detect_face_in_image(source);
+                    if face_data.is_none() {
+                        log::info!("No face found in image {}", source.to_str().unwrap());
                     }
                 }
-                false
-            }).collect();
-            if was_resized.iter().any(|x| *x) {
-                log::info!("resized {} in {:?}", filename, before.elapsed());
             }
+            let alternate_names = get_alternate_names_of(config.clone(), &filename).await;
+            parallel_resize_image(before, filename, source, md5_hash.clone(), config.clone(), face_data.clone(), alternate_names.clone());
+
         }
         unlock_image(source, config.clone(), lock);
     }
+}
+
+fn parallel_resize_image(before: Instant, filename: String, image: &Path, md5_hash: String, config: Config, face_data: Option<FaceLocation>, alternate_names: Vec<String>) -> bool {
+    let was_resized: Vec<bool> = config.sizes.par_iter().map(|size| {
+        let was_resized_format: Vec<bool> = config.formats.par_iter().map(|format| {
+            let mut path = vec![config.images.clone(), format.as_str().to_string(), size.to_string()];
+            let binding = build_path(path.clone(), None);
+            let size_path = binding.as_path();
+            create_directory(size_path);
+
+            path.push(md5_hash.clone());
+            let binding = build_path(path, Some(config.extension.clone()));
+
+            let cache_path = binding.as_path();
+
+            if needs_update(image, cache_path) {
+                log::debug!("resizing {} to {}", image.to_str().unwrap(), size);
+                resize_image(
+                    image,
+                    cache_path,
+                    *size,
+                    size_path,
+                    alternate_names.clone(),
+                    config.clone(),
+                    &format,
+                    face_data,
+                );
+                return true;
+            }
+            false
+        }).collect();
+        if was_resized_format.iter().any(|x| *x) {
+            return true;
+        }
+        false
+    }).collect();
+    if was_resized.iter().any(|x| *x) {
+        log::info!("resized {} in {:?}", filename, before.elapsed());
+        return true;
+    }
+    false
 }
 
 pub fn create_links_for_image(
@@ -426,7 +413,8 @@ fn resize_image(
     directory: &Path,
     alternate_names: Vec<String>,
     config: Config,
-    resize_to_fill: bool,
+    format: &Format,
+    face_location: Option<FaceLocation>
 ) {
     if !Path::exists(source) {
         log::info!("source does not exist {}", source.to_str().unwrap());
@@ -451,36 +439,37 @@ fn resize_image(
         }
     };
 
-    if image.width() != image.height() {
-        log::info!("Image is not square, cropping to square and centering face");
-        if let Some(face) = detect_face_in_image(source) {
-            log::debug!("Found face in image {} at {:?}", source.to_str().unwrap(), face);
-            let face_x = face.left;
-            let face_y = face.top;
-            let face_width = face.right - face.left;
-            let face_height = face.bottom - face.top;
-            // now lets make sure to somehow center the face
-            let face_center_x = face_x + face_width / 2;
-            let face_center_y = face_y + face_height / 2;
-            let new_width: f64 = face_width as f64 * 1.6180333;
-            let new_x: u32 = if face_center_x > new_width as u32 {
-                (face_center_x as f64 - new_width) as u32
-            } else {
-                0
-            };
-            let new_height: f64 = face_height as f64 * (1.6180333 / 1.2f64);
-            let new_y: u32 = if face_center_y > new_height as u32 {
-                (face_center_y as f64 - new_height) as u32
-            } else {
-                0u32
-            };
-            let new_width = 3 * face_width;
-            let new_height = 3 * face_height;
-            image = image.crop_imm(new_x, new_y, new_width, new_height);
+    if format == &Format::Center {
+        if image.width() != image.height() {
+            if let Some(face) = face_location {
+                log::debug!("Found face in image {} at {:?}", source.to_str().unwrap(), face);
+                let face_x = face.left;
+                let face_y = face.top;
+                let face_width = face.right - face.left;
+                let face_height = face.bottom - face.top;
+                // now lets make sure to somehow center the face
+                let face_center_x = face_x + face_width / 2;
+                let face_center_y = face_y + face_height / 2;
+                let new_width: f64 = face_width as f64 * 1.6180333;
+                let new_x: u32 = if face_center_x > new_width as u32 {
+                    (face_center_x as f64 - new_width) as u32
+                } else {
+                    0
+                };
+                let new_height: f64 = face_height as f64 * (1.6180333 / 1.2f64);
+                let new_y: u32 = if face_center_y > new_height as u32 {
+                    (face_center_y as f64 - new_height) as u32
+                } else {
+                    0u32
+                };
+                let new_width = 3 * face_width;
+                let new_height = 3 * face_height;
+                image = image.crop_imm(new_x, new_y, new_width, new_height);
+            }
         }
     }
 
-    if resize_to_fill {
+    if format == &Square || format == &Format::Center {
         image = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);
     } else {
         image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
@@ -504,19 +493,13 @@ fn resize_image(
     }
 }
 
-fn tick<R>(name: &str, f: impl Fn() -> R) -> R {
-    let now = std::time::Instant::now();
-    let result = f();
-    println!("[{}] elapsed time: {}ms", name, now.elapsed().as_millis());
-    result
-}
 
 fn detect_face_in_image(source: &Path) -> Option<FaceLocation> {
     use dlib_face_recognition::*;
     let image = image_dlib::open(source).unwrap().to_rgb8();
     let matrix = ImageMatrix::from_image(&image);
     let detector = FaceDetector::default();
-    let face_locations = tick("FaceDetector", || detector.face_locations(&matrix));
+    let face_locations = detector.face_locations(&matrix);
 
     if face_locations.is_empty() {
         log::debug!("No faces found in {:?}", source);

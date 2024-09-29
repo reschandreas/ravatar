@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct FaceLocation {
     pub(crate) top: u32,
     pub(crate) right: u32,
@@ -9,7 +9,7 @@ pub(crate) struct FaceLocation {
     pub(crate) left: u32,
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Deserialize, Debug)]
 pub(crate) enum Format {
     #[default]
     Square,
@@ -37,7 +37,7 @@ pub(crate) struct Config {
     pub mm_extension: String,
     pub default_format: Format,
     pub log_level: String,
-    pub offer_original_dimensions: bool,
+    pub formats: Vec<Format>,
     pub ldap: Option<LdapConfig>,
     pub sizes : Vec<u32>,
 }
@@ -61,7 +61,7 @@ pub struct ImageRequest {
     pub(crate) default: Option<String>,
     pub(crate) forcedefault: Option<char>,
     pub(crate) f: Option<char>,
-    pub(crate) original_dimensions: Option<bool>,
+    pub(crate) format: Option<String>,
 }
 
 #[derive(Clone)]
