@@ -22,4 +22,4 @@ rand = "0.8.5"
 ldap3 = "0.11.4"
 url = "2.5.0"
 dlib-face-recognition = { version = "0.3.2", features = ["build-native", "embed-all"] }
-image_dlib = { package = "image", version = "0.24" }
+image_dlib = { package = "image", version = "0.25" }
