@@ -1,6 +1,13 @@
-use crate::structs::{Config, ImageRequest, LdapConfig};
+use std::cmp::PartialEq;
+use crate::structs::{Config, Format, ImageRequest, LdapConfig};
 use actix_web::web::Query;
 use std::env;
+
+impl PartialEq for Format {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
 
 /**
  * Read the configuration from the environment variables
@@ -14,20 +21,37 @@ pub(crate) fn read_config() -> Config {
     let host = env::var("HOST").unwrap_or("0.0.0.0".into());
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
     let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
-    let mut offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
+    let mut formats: Vec<Format> = vec![Format::Square];
+    let offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
         .unwrap_or("false".into())
         .parse()
         .unwrap();
-    let default_format = env::var("DEFAULT_FORMAT").unwrap_or("square".into());
-    if default_format.eq("square") {
+    let offer_centered: bool = env::var("OFFER_FACE_CENTERED_IMAGE")
+        .unwrap_or("false".into())
+        .parse()
+        .unwrap();
+    let default_format: Format = match env::var("DEFAULT_FORMAT").unwrap_or("square".into()).as_str() {
+        "square" => Format::Square,
+        "original" => Format::Original,
+        "center" => Format::Center,
+        _ => Format::Square,
+    };
+    if offer_centered || default_format == Format::Center {
+        formats.push(Format::Center);
+    }
+    if offer_original_dimensions || default_format == Format::Original {
+        formats.push(Format::Original);
+    }
+    if default_format == Format::Square {
         log::info!("DEFAULT_FORMAT is set to square, this is the default behavior");
-    } else if default_format.eq("original") {
-        log::info!("DEFAULT_FORMAT is set to original, this will offer the original image per default, use original_dimensions=false to disable");
+    } else if default_format == Format::Original {
+        log::info!("DEFAULT_FORMAT is set to original, this will offer the original image per default, use format=square to disable");
+        formats.push(Format::Original);
+    }
+    if default_format == Format::Center {
+        log::info!("DEFAULT_FORMAT is set to center, this will detect the face and center it in the image, if the image is not squared already");
     } else {
         log::warn!("DEFAULT_FORMAT is set to an unknown value, defaulting to square");
-    }
-    if default_format.eq("original") {
-        offer_original_dimensions = true;
     }
     let mut ldap: Option<LdapConfig> = None;
     if let Ok(ldap_url) = env::var("LDAP_URL") {
@@ -61,10 +85,11 @@ pub(crate) fn read_config() -> Config {
         raw,
         extension,
         mm_extension,
-        default_original_dimensions: default_format.eq("original"),
+        default_format,
         log_level,
         ldap,
-        offer_original_dimensions,
+        formats,
+        sizes : vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
     }
 }
 

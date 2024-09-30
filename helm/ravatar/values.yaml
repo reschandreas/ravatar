@@ -15,6 +15,7 @@ ravatar:
   generatedImagesPath: "/images"
   logLevel: "info"
   offerOriginalDimensions: false
+  offerFaceCenteredImage: false
   ldap:
     enabled: false
 

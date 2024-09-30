@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::config::{read_config, read_default, read_force_default, read_size};
 use crate::image_processor::{process_directory, resize_default, watch_directory};
-use crate::structs::{AppState, Config, ImageRequest};
+use crate::structs::{AppState, Config, Format, ImageRequest};
 use crate::utils::{build_path, md5, sha256};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
@@ -89,39 +89,60 @@ async fn avatar(
     let default: String = read_default(query.clone());
     log::debug!("serving {mail_hash}, size {size}");
     let mut path_parts = vec![cache_dir.clone()];
-    let mut serve_original_size = config.default_original_dimensions;
+    let default_format = config.default_format.clone();
+    let mut format_to_serve = match query.format.clone() {
+        None => default_format,
+        Some(value) => {
+            match value.as_str() {
+                "square" => Format::Square,
+                "original" => Format::Original,
+                "center" =>  Format::Center,
+                _ => config.default_format
+            }
+        }
+    };
+    if !config.formats.contains(&format_to_serve) {
+        log::warn!("format {format} is not supported, falling back to default", format = format_to_serve.as_str());
+        format_to_serve = default_format;
+    }
+    path_parts.push(format_to_serve.as_str().to_string());
 
-    if query.original_dimensions.is_some() && !query.original_dimensions.unwrap() {
-        serve_original_size = false;
-    }
-    if serve_original_size {
-        path_parts.push("original-dimensions".to_string());
-    }
     path_parts.push(size.to_string());
     path_parts.push(mail_hash.clone());
+
     let mut path = build_path(path_parts, Some(config.extension.clone()));
     if !path.exists() || read_force_default(query) {
-        log::info!("not found {mail_hash}, size {size}, serving {default}");
+        log::info!("could not find {mail_hash}, size {size}, serving {default}");
         match default.as_str() {
             "404" => {
                 return HttpResponse::NotFound().finish();
             }
             "mm" => {
                 path = build_path(
-                    vec![cache_dir.clone(), size.to_string(), "mm".to_string()],
+                    vec![cache_dir.clone(), format_to_serve.as_str().to_string(), size.to_string(), "mm".to_string()],
                     Some(config.extension.clone()),
                 );
             }
             _ => {
                 path = build_path(
-                    vec![cache_dir.clone(), size.to_string(), default.clone()],
+                    vec![cache_dir.clone(), format_to_serve.as_str().to_string(), default.clone()],
                     Some(config.extension.clone()),
                 );
             }
         }
     }
-    let image_content = web::block(move || fs::read(path)).await.unwrap().unwrap();
-    HttpResponse::build(StatusCode::OK)
-        .content_type(format!("image/{}", config.extension))
-        .body(image_content)
+    if let Ok(image_content) = web::block(move || fs::read(path)).await {
+        match image_content {
+            Ok(content) => {
+                HttpResponse::build(StatusCode::OK)
+                    .content_type(format!("image/{}", config.extension))
+                    .body(content)
+            }
+            Err(_) => {
+                HttpResponse::NotFound().finish()
+            }
+        }
+    } else {
+        HttpResponse::NotFound().finish()
+    }
 }
