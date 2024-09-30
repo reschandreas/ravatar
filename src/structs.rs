@@ -1,5 +1,31 @@
 use serde::Deserialize;
 
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FaceLocation {
+    pub(crate) top: u32,
+    pub(crate) right: u32,
+    pub(crate) bottom: u32,
+    pub(crate) left: u32,
+}
+
+#[derive(Default, Clone, Deserialize, Debug, Copy)]
+pub(crate) enum Format {
+    #[default]
+    Square,
+    Original,
+    Center,
+}
+
+impl Format {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Format::Square => "square",
+            Format::Original => "original",
+            Format::Center => "center",
+        }
+    }
+}
 #[derive(Default, Clone, Debug)]
 pub(crate) struct Config {
     pub host: String,
@@ -9,10 +35,11 @@ pub(crate) struct Config {
     pub raw: String,
     pub extension: String,
     pub mm_extension: String,
-    pub default_original_dimensions: bool,
+    pub default_format: Format,
     pub log_level: String,
-    pub offer_original_dimensions: bool,
+    pub formats: Vec<Format>,
     pub ldap: Option<LdapConfig>,
+    pub sizes : Vec<u32>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -34,7 +61,7 @@ pub struct ImageRequest {
     pub(crate) default: Option<String>,
     pub(crate) forcedefault: Option<char>,
     pub(crate) f: Option<char>,
-    pub(crate) original_dimensions: Option<bool>,
+    pub(crate) format: Option<String>,
 }
 
 #[derive(Clone)]
