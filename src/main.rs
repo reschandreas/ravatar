@@ -114,13 +114,13 @@ async fn avatar(
             }
             "mm" => {
                 path = build_path(
-                    vec![cache_dir.clone(), size.to_string(), "mm".to_string()],
+                    vec![cache_dir.clone(), format_to_serve.as_str().to_string(), size.to_string(), "mm".to_string()],
                     Some(config.extension.clone()),
                 );
             }
             _ => {
                 path = build_path(
-                    vec![cache_dir.clone(), size.to_string(), default.clone()],
+                    vec![cache_dir.clone(), format_to_serve.as_str().to_string(), default.clone()],
                     Some(config.extension.clone()),
                 );
             }

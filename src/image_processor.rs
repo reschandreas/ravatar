@@ -111,14 +111,15 @@ pub async fn evacuate_image(path: &Path, config: &Config) {
             return;
         }
         let md5_hash = md5(&filename);
+        let sha256_hash = sha256(&filename);
         log::info!("cleaning up {} and all other links", md5_hash);
         let mut alternate_names = Vec::new();
         if config.ldap.is_some() {
             alternate_names = get_alternate_names_of(config.clone(), &filename).await;
         }
+        alternate_names.push(sha256_hash.clone());
+        alternate_names.push(md5_hash.clone());
         config.sizes.iter().for_each(|size| {
-            let size_path = build_path(vec![config.images.clone(), size.to_string()], None);
-            cleanup_image(config, size_path, md5_hash.clone(), alternate_names.clone());
             config.formats.par_iter().for_each(|format| {
                 let binding = build_path(
                     vec![
@@ -128,17 +129,13 @@ pub async fn evacuate_image(path: &Path, config: &Config) {
                     ],
                     None,
                 );
-                cleanup_image(config, binding, md5_hash.clone(), alternate_names.clone());
+                cleanup_image(config, binding, alternate_names.clone());
             });
         });
     }
 }
 
-fn cleanup_image(config: &Config, path_prefix: PathBuf, md5_hash: String, names: Vec<String>) {
-    let cache_path = build_path(
-        vec![path_prefix.to_str().unwrap().to_string(), md5_hash.clone()],
-        Some(config.extension.clone()),
-    );
+fn cleanup_image(config: &Config, path_prefix: PathBuf, names: Vec<String>) {
     for name in names {
         let link_path = build_path(
             vec![path_prefix.to_str().unwrap().to_string(), name],
@@ -149,11 +146,6 @@ fn cleanup_image(config: &Config, path_prefix: PathBuf, md5_hash: String, names:
         } else {
             log::info!("link not found {}", link_path.to_str().unwrap());
         }
-    }
-    if cache_path.as_path().exists() {
-        fs::remove_file(cache_path).expect("Could not delete file");
-    } else {
-        log::info!("file not found {}", cache_path.to_str().unwrap());
     }
 }
 
@@ -186,7 +178,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                 if needs_update(source, path.as_path()) {
                     face_data = detect_face_in_image(source);
                     if face_data.is_none() {
-                        log::info!("No face found in image {}", source.to_str().unwrap());
+                        log::info!("no face found in image {}", source.to_str().unwrap());
                     }
                 }
             }
