@@ -9,7 +9,7 @@ pub(crate) struct FaceLocation {
     pub(crate) left: u32,
 }
 
-#[derive(Default, Clone, Deserialize, Debug)]
+#[derive(Default, Clone, Deserialize, Debug, Copy)]
 pub(crate) enum Format {
     #[default]
     Square,

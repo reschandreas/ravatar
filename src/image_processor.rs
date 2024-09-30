@@ -488,28 +488,30 @@ fn resize_image(
 
 fn detect_face_in_image(source: &Path) -> Option<FaceLocation> {
     use dlib_face_recognition::*;
-    let image = image_dlib::open(source).unwrap().to_rgb8();
-    let matrix = ImageMatrix::from_image(&image);
-    let detector = FaceDetector::default();
-    let face_locations = detector.face_locations(&matrix);
+    if let Ok(image) = image_dlib::open(source) {
+        let matrix = ImageMatrix::from_image(&image.to_rgb8());
+        let detector = FaceDetector::default();
+        let face_locations = detector.face_locations(&matrix);
 
-    if face_locations.is_empty() {
-        log::debug!("No faces found in {:?}", source);
-        return None;
+        if face_locations.is_empty() {
+            log::debug!("No faces found in {:?}", source);
+            return None;
+        }
+        if face_locations.len() > 1 {
+            log::debug!("Multiple faces found in {:?}", source);
+            return None;
+        }
+
+        let face_location = face_locations[0];
+
+        return Some(FaceLocation {
+            top: face_location.top.try_into().unwrap(),
+            right: face_location.right.try_into().unwrap(),
+            bottom: face_location.bottom.try_into().unwrap(),
+            left: face_location.left.try_into().unwrap(),
+        });
     }
-    if face_locations.len() > 1 {
-        log::debug!("Multiple faces found in {:?}", source);
-        return None;
-    }
-
-    let face_location = face_locations[0];
-
-    Some(FaceLocation {
-        top: face_location.top.try_into().unwrap(),
-        right: face_location.right.try_into().unwrap(),
-        bottom: face_location.bottom.try_into().unwrap(),
-        left: face_location.left.try_into().unwrap(),
-    })
+    None
 }
 
 fn needs_update(raw: &Path, processed: &Path) -> bool {

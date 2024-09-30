@@ -23,11 +23,11 @@ pub(crate) fn read_config() -> Config {
     let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
     let mut formats: Vec<Format> = vec![Format::Square];
     let offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
-        .unwrap_or("true".into())
+        .unwrap_or("false".into())
         .parse()
         .unwrap();
     let offer_centered: bool = env::var("OFFER_FACE_CENTERED_IMAGE")
-        .unwrap_or("true".into())
+        .unwrap_or("false".into())
         .parse()
         .unwrap();
     let default_format: Format = match env::var("DEFAULT_FORMAT").unwrap_or("square".into()).as_str() {

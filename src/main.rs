@@ -89,8 +89,9 @@ async fn avatar(
     let default: String = read_default(query.clone());
     log::debug!("serving {mail_hash}, size {size}");
     let mut path_parts = vec![cache_dir.clone()];
-    let format_to_serve = match query.format.clone() {
-        None => config.default_format,
+    let default_format = config.default_format.clone();
+    let mut format_to_serve = match query.format.clone() {
+        None => default_format,
         Some(value) => {
             match value.as_str() {
                 "square" => Format::Square,
@@ -100,6 +101,10 @@ async fn avatar(
             }
         }
     };
+    if !config.formats.contains(&format_to_serve) {
+        log::warn!("format {format} is not supported, falling back to default", format = format_to_serve.as_str());
+        format_to_serve = default_format;
+    }
     path_parts.push(format_to_serve.as_str().to_string());
 
     path_parts.push(size.to_string());
@@ -126,8 +131,18 @@ async fn avatar(
             }
         }
     }
-    let image_content = web::block(move || fs::read(path)).await.unwrap().unwrap();
-    HttpResponse::build(StatusCode::OK)
-        .content_type(format!("image/{}", config.extension))
-        .body(image_content)
+    if let Ok(image_content) = web::block(move || fs::read(path)).await {
+        match image_content {
+            Ok(content) => {
+                HttpResponse::build(StatusCode::OK)
+                    .content_type(format!("image/{}", config.extension))
+                    .body(content)
+            }
+            Err(_) => {
+                HttpResponse::NotFound().finish()
+            }
+        }
+    } else {
+        HttpResponse::NotFound().finish()
+    }
 }
