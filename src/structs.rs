@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 
 #[derive(Debug, Clone, Copy)]
@@ -15,6 +15,7 @@ pub(crate) enum Format {
     Square,
     Original,
     Center,
+    Portrait
 }
 
 impl Format {
@@ -23,6 +24,7 @@ impl Format {
             Format::Square => "square",
             Format::Original => "original",
             Format::Center => "center",
+            Format::Portrait => "portrait"
         }
     }
 }
@@ -53,13 +55,13 @@ pub(crate) struct LdapConfig {
     pub target_attributes: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct ImageRequest {
     pub(crate) s: Option<u16>,
     pub(crate) size: Option<u16>,
     pub(crate) d: Option<String>,
     pub(crate) default: Option<String>,
-    pub(crate) forcedefault: Option<char>,
+    pub(crate) force_default: Option<char>,
     pub(crate) f: Option<char>,
     pub(crate) format: Option<String>,
 }

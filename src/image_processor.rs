@@ -20,13 +20,13 @@ use std::ffi::OsStr;
 use random_word::Lang;
 use resvg::tiny_skia::Pixmap;
 use resvg::usvg::Tree;
-use crate::structs::Format::Square;
+use crate::structs::Format::{Portrait, Square};
 
 pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
     let extension = config.mm_extension.clone();
     let binding = build_path(
-        vec![config.images.clone(), 1024.to_string(), "mm".to_string()],
+        vec![config.images.clone(), config.default_format.as_str().parse().unwrap(), 1024.to_string(), "mm".to_string()],
         Some(extension.clone()),
     );
     let path = binding.as_path();
@@ -50,24 +50,26 @@ pub fn resize_default(config: &Config) {
             continue;
         }
         config.sizes.par_iter().for_each(|size| {
-            let directory = build_path(vec![image_path.clone(), Square.as_str().parse().unwrap(), size.to_string()], None);
-            create_directory(directory.as_path());
-            let binding = build_path(
-                vec![image_path.clone(), Square.as_str().parse().unwrap(), size.to_string(), name.to_string()],
-                Some(extension.clone()),
-            );
-            let source_path = source_binding.as_path();
-            let path = binding.as_path();
-            resize_image(
-                source_path,
-                path,
-                *size,
-                directory.as_path(),
-                Vec::default(),
-                config.clone(),
-                &Square,
-                None
-            );
+            config.formats.par_iter().for_each(|format| {
+                let directory = build_path(vec![image_path.clone(), format.as_str().parse().unwrap(), size.to_string()], None);
+                create_directory(directory.as_path());
+                let binding = build_path(
+                    vec![image_path.clone(), format.as_str().parse().unwrap(), size.to_string(), name.to_string()],
+                    Some(config.extension.clone()),
+                );
+                let source_path = source_binding.as_path();
+                let path = binding.as_path();
+                resize_image(
+                    source_path,
+                    path,
+                    *size,
+                    directory.as_path(),
+                    Vec::default(),
+                    config.clone(),
+                    &Square,
+                    None
+                );
+            });
         });
     }
 }
@@ -476,6 +478,9 @@ fn resize_image(
 
     if format == &Square || format == &Format::Center {
         image = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);
+    } else if format == &Portrait {
+        image = image.crop(0, 0, image.width(), image.width());
+        image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
     } else {
         image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
     }
@@ -501,7 +506,7 @@ fn resize_image(
     }
 }
 
-
+#[cfg(feature = "face_recognition")]
 fn detect_face_in_image(source: &Path) -> Option<FaceLocation> {
     use dlib_face_recognition::*;
     if let Ok(image) = image_dlib::open(source) {
@@ -527,6 +532,11 @@ fn detect_face_in_image(source: &Path) -> Option<FaceLocation> {
             left: face_location.left.try_into().unwrap(),
         });
     }
+    None
+}
+
+#[cfg(not(feature = "face_recognition"))]
+fn detect_face_in_image(_source: &Path) -> Option<FaceLocation> {
     None
 }
 

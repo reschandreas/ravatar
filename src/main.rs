@@ -4,6 +4,7 @@ mod ldap;
 mod structs;
 mod utils;
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -13,8 +14,7 @@ use crate::structs::{AppState, Config, Format, ImageRequest};
 use crate::utils::{build_path, md5, sha256};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
-use actix_web::web::Query;
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use ldap3::tokio;
 
 #[actix_web::main]
@@ -55,12 +55,12 @@ async fn main() -> std::io::Result<()> {
                     .service(hash),
             )
     })
-    .bind((host, port))?
-    .run()
-    .await
-    .map(|_| {
-        log::info!("shutting down");
-    })
+        .bind((host, port))?
+        .run()
+        .await
+        .map(|_| {
+            log::info!("shutting down");
+        })
 }
 
 #[get("")]
@@ -80,8 +80,23 @@ async fn hash(path: web::Path<(String,)>) -> HttpResponse {
 async fn avatar(
     path: web::Path<(String,)>,
     data: web::Data<AppState>,
-    query: Query<ImageRequest>,
+    req: HttpRequest,
 ) -> HttpResponse {
+    let query_string = req.query_string();
+    let parsed_query: HashMap<String, String> = url::form_urlencoded::parse(query_string.as_bytes())
+        .into_owned().collect::<Vec<_>>().into_iter().map(
+        |(k, v)| (k, v.to_string())
+    )
+        .collect();
+    let query = ImageRequest {
+        s: parsed_query.get("s").and_then(|s| s.parse::<u16>().ok()),
+        size: parsed_query.get("size").and_then(|s| s.parse::<u16>().ok()),
+        d: parsed_query.get("d").cloned(),
+        default: parsed_query.get("default").cloned(),
+        force_default: parsed_query.get("forcedefault").and_then(|f| f.chars().next()),
+        f: parsed_query.get("f").and_then(|f| f.chars().next()),
+        format: parsed_query.get("format").cloned(),
+    };
     let mail_hash = path.into_inner().0;
     let config: Config = data.config.clone();
     let cache_dir = config.images;
@@ -96,7 +111,7 @@ async fn avatar(
             match value.as_str() {
                 "square" => Format::Square,
                 "original" => Format::Original,
-                "center" =>  Format::Center,
+                "center" => Format::Center,
                 _ => config.default_format
             }
         }

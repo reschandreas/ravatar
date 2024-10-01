@@ -22,6 +22,14 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - postfix: ""
+            features: ""
+          - postfix: "-face"
+            features: "--features face_recognition"
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -48,17 +56,17 @@ jobs:
           result-encoding: string
           script: |
             if (context.eventName === "pull_request") {
-              return "pr-" + context.issue.number;
+              return "pr-" + context.issue.number + "${{ matrix.postfix }}";
             }
             if (context.eventName === "release") {
-              return "latest";
+              return "latest" + "${{ matrix.postfix }}";
             }
             if (context.eventName === "push") {
               if (context.ref.startsWith("refs/tags/")) {
-                return context.ref.slice(10);
+                return context.ref.slice(10) + "${{ matrix.postfix }}";
               }
               if (context.ref === "refs/heads/main") {
-                return "nightly";
+                return "nightly" + "${{ matrix.postfix }}";
               }
             }
             return "FALSE";
@@ -78,8 +86,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: ${{steps.compute-arch.outputs.result}}
+          platforms: linux/amd64,linux/arm64
           push: true
+          build-args: featureflag=${{ matrix.features }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
