@@ -36,7 +36,7 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ if or .Values.ravatar.offerFaceCenteredImage (eq .Values.ravatar.defaultFormat "center") }}-face{{ end }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -65,6 +65,8 @@ spec:
               value: {{ .Values.ravatar.offerOriginalDimensions | default false | quote }}
             - name: OFFER_FACE_CENTERED_IMAGE
               value: {{ .Values.ravatar.offerFaceCenteredImage | default false | quote }}
+            - name: OFFER_PORTRAIT_IMAGE
+              value: {{ .Values.ravatar.offerPortraitImage | default false | quote }}
             {{ if .Values.ravatar.ldap.enabled }}
             - name: LDAP_URL
               value: {{ .Values.ravatar.ldap.url | quote }}
@@ -78,6 +80,9 @@ spec:
               value: {{ .Values.ravatar.ldap.inputAttribute | quote }}
             - name: LDAP_TARGET_ATTRIBUTES
               value: {{ .Values.ravatar.ldap.targetAttributes | quote }}
+            {{ end }}
+            {{ if .Values.envs }}
+            {{ toYaml .Values.envs | indent 12 }}
             {{ end }}
           {{- if or .Values.ravatar.ldap.enabled .Values.envFrom }}
           envFrom:

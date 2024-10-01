@@ -16,6 +16,7 @@ ravatar:
   logLevel: "info"
   offerOriginalDimensions: false
   offerFaceCenteredImage: false
+  offerPortraitImage: false
   ldap:
     enabled: false
 

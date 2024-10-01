@@ -1,5 +1,5 @@
 FROM rust:alpine AS build-prep
-
+ARG featureflag
 WORKDIR /build
 
 RUN apk add --no-cache clang gcompat build-base musl-dev openssl-dev openldap-dev cmake libpng-dev g++ lapack-dev
@@ -22,7 +22,7 @@ COPY src ./src
 
 # make sure main.rs is rebuilt
 RUN touch /build/src/main.rs
-RUN cargo build --release
+RUN cargo build --release $featureflag
 
 # Create a minimal docker image
 FROM alpine:latest
@@ -33,7 +33,6 @@ ENV RUST_LOG="debug,ravatar=info"
 
 COPY --from=build /build/target/release/ravatar /ravatar
 ADD ./default /default
-ENV RUST_BACKTRACE=full
 
 EXPOSE 8080
 
