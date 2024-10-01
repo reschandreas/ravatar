@@ -15,6 +15,7 @@ pub(crate) enum Format {
     Square,
     Original,
     Center,
+    Portrait
 }
 
 impl Format {
@@ -23,6 +24,7 @@ impl Format {
             Format::Square => "square",
             Format::Original => "original",
             Format::Center => "center",
+            Format::Portrait => "portrait"
         }
     }
 }

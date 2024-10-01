@@ -20,7 +20,7 @@ use std::ffi::OsStr;
 use random_word::Lang;
 use resvg::tiny_skia::Pixmap;
 use resvg::usvg::Tree;
-use crate::structs::Format::Square;
+use crate::structs::Format::{Portrait, Square};
 
 pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
@@ -476,6 +476,9 @@ fn resize_image(
 
     if format == &Square || format == &Format::Center {
         image = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);
+    } else if format == &Portrait {
+        image = image.crop(0, 0, image.width(), image.width());
+        image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
     } else {
         image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
     }
@@ -501,7 +504,7 @@ fn resize_image(
     }
 }
 
-
+#[cfg(feature = "face_recognition")]
 fn detect_face_in_image(source: &Path) -> Option<FaceLocation> {
     use dlib_face_recognition::*;
     if let Ok(image) = image_dlib::open(source) {
@@ -527,6 +530,11 @@ fn detect_face_in_image(source: &Path) -> Option<FaceLocation> {
             left: face_location.left.try_into().unwrap(),
         });
     }
+    None
+}
+
+#[cfg(not(feature = "face_recognition"))]
+fn detect_face_in_image(_source: &Path) -> Option<FaceLocation> {
     None
 }
 
