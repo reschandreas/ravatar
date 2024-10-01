@@ -30,18 +30,27 @@ pub(crate) fn read_config() -> Config {
         .unwrap_or("false".into())
         .parse()
         .unwrap();
+    let offer_portrait: bool = env::var("OFFER_PORTRAIT_IMAGE")
+        .unwrap_or("true".into())
+        .parse()
+        .unwrap();
     let default_format: Format = match env::var("DEFAULT_FORMAT").unwrap_or("square".into()).as_str() {
         "square" => Format::Square,
         "original" => Format::Original,
         "center" => Format::Center,
+        "portrait" => Format::Portrait,
         _ => Format::Square,
     };
     if offer_centered || default_format == Format::Center {
         formats.push(Format::Center);
     }
+    if offer_portrait || default_format == Format::Portrait {
+        formats.push(Format::Portrait);
+    }
     if offer_original_dimensions || default_format == Format::Original {
         formats.push(Format::Original);
     }
+
     if default_format == Format::Square {
         log::info!("DEFAULT_FORMAT is set to square, this is the default behavior");
     } else if default_format == Format::Original {
