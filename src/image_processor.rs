@@ -16,6 +16,10 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, vec};
+use std::ffi::OsStr;
+use random_word::Lang;
+use resvg::tiny_skia::Pixmap;
+use resvg::usvg::Tree;
 use crate::structs::Format::Square;
 
 pub fn resize_default(config: &Config) {
@@ -173,7 +177,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
             log::debug!("processing {}", source.to_str().unwrap());
             let mut face_data: Option<FaceLocation> = None;
             if config.formats.contains(&Format::Center) {
-                let random_size = config.sizes.last().unwrap().clone();
+                let random_size = *config.sizes.last().unwrap();
                 let path = build_path(vec![config.images.clone(), Format::Center.as_str().to_string(), random_size.to_string(), md5_hash.clone()], Some(config.extension.clone()));
                 if needs_update(source, path.as_path()) {
                     face_data = detect_face_in_image(source);
@@ -183,7 +187,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                 }
             }
             let alternate_names = get_alternate_names_of(config.clone(), &filename).await;
-            parallel_resize_image(before, filename, source, md5_hash.clone(), config.clone(), face_data.clone(), alternate_names.clone());
+            parallel_resize_image(before, filename, source, md5_hash.clone(), config.clone(), face_data, alternate_names.clone());
 
         }
         unlock_image(source, config.clone(), lock);
@@ -212,7 +216,7 @@ fn parallel_resize_image(before: Instant, filename: String, image: &Path, md5_ha
                     size_path,
                     alternate_names.clone(),
                     config.clone(),
-                    &format,
+                    format,
                     face_data,
                 );
                 return true;
@@ -412,8 +416,19 @@ fn resize_image(
         log::info!("source does not exist {}", source.to_str().unwrap());
         return;
     }
+    let mut path: &Path = source;
+    let mut temp_file: Option<PathBuf> = None;
+    if path.extension() == Some(OsStr::new("svg")) {
+        log::debug!("found a svg file");
+        let word = random_word::gen(Lang::En);
+        let binding = build_path(vec!["/tmp".to_string(), word.to_string()], Some("png".to_string()));
+        temp_file = Some(binding.as_path().to_path_buf());
+        svg_to_png(source.to_str().unwrap(), binding.to_str().unwrap());
+        path = temp_file.as_ref().unwrap().as_path();
+        log::debug!("converted svg to png so we can resize it");
+    }
     log::debug!("resizing {}", source.to_str().unwrap());
-    let image_res = image::ImageReader::open(source);
+    let image_res = image::ImageReader::open(path);
     if image_res.is_err() {
         log::error!("Could not open image {}", source.to_str().unwrap());
         return;
@@ -431,33 +446,31 @@ fn resize_image(
         }
     };
 
-    if format == &Format::Center {
-        if image.width() != image.height() {
-            if let Some(face) = face_location {
-                log::debug!("Found face in image {} at {:?}", source.to_str().unwrap(), face);
-                let face_x = face.left;
-                let face_y = face.top;
-                let face_width = face.right - face.left;
-                let face_height = face.bottom - face.top;
-                // now lets make sure to somehow center the face
-                let face_center_x = face_x + face_width / 2;
-                let face_center_y = face_y + face_height / 2;
-                let new_width: f64 = face_width as f64 * 1.6180333;
-                let new_x: u32 = if face_center_x > new_width as u32 {
-                    (face_center_x as f64 - new_width) as u32
-                } else {
-                    0
-                };
-                let new_height: f64 = face_height as f64 * (1.6180333 / 1.2f64);
-                let new_y: u32 = if face_center_y > new_height as u32 {
-                    (face_center_y as f64 - new_height) as u32
-                } else {
-                    0u32
-                };
-                let new_width = 3 * face_width;
-                let new_height = 3 * face_height;
-                image = image.crop_imm(new_x, new_y, new_width, new_height);
-            }
+    if format == &Format::Center && image.width() != image.height() {
+        if let Some(face) = face_location {
+            log::debug!("Found face in image {} at {:?}", source.to_str().unwrap(), face);
+            let face_x = face.left;
+            let face_y = face.top;
+            let face_width = face.right - face.left;
+            let face_height = face.bottom - face.top;
+            // now lets make sure to somehow center the face
+            let face_center_x = face_x + face_width / 2;
+            let face_center_y = face_y + face_height / 2;
+            let new_width: f64 = face_width as f64 * 1.6180333;
+            let new_x: u32 = if face_center_x > new_width as u32 {
+                (face_center_x as f64 - new_width) as u32
+            } else {
+                0
+            };
+            let new_height: f64 = face_height as f64 * (1.6180333 / 1.2f64);
+            let new_y: u32 = if face_center_y > new_height as u32 {
+                (face_center_y as f64 - new_height) as u32
+            } else {
+                0u32
+            };
+            let new_width = 3 * face_width;
+            let new_height = 3 * face_height;
+            image = image.crop_imm(new_x, new_y, new_width, new_height);
         }
     }
 
@@ -482,6 +495,9 @@ fn resize_image(
     }
     if !alternate_names.is_empty() {
         create_links_for_image(config.clone(), directory, destination, alternate_names);
+    }
+    if let Some(temp_file) = temp_file {
+        fs::remove_file(temp_file.as_path()).unwrap()
     }
 }
 
@@ -530,4 +546,25 @@ fn needs_update(raw: &Path, processed: &Path) -> bool {
     let processed_metadata = fs::metadata(processed).unwrap();
     let processed_mtime = FileTime::from_last_modification_time(&processed_metadata);
     raw_mtime > processed_mtime
+}
+
+fn svg_to_png(source: &str, output_path: &str) {
+    // Parse SVG data into a tree
+    let opt = resvg::usvg::Options::default();
+    let content = fs::read(source).unwrap();
+    if let Ok(rtree) = Tree::from_data(&content, &opt) {
+        // Set up the render target
+        if let Some(mut pixmap) = Pixmap::new(rtree.size().width() as u32, rtree.size().height() as u32) {
+            // Render the SVG
+            resvg::render(&rtree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
+
+            // Save the output as PNG
+            log::debug!("Svg to {}.", output_path);
+            pixmap.save_png(output_path).unwrap();
+        } else {
+            log::error!("Failed to create pixmap");
+        }
+    } else {
+        log::error!("Could not parse svg data {}", source);
+    }
 }
