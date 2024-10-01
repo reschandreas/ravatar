@@ -89,7 +89,7 @@ async fn avatar(
     let default: String = read_default(query.clone());
     log::debug!("serving {mail_hash}, size {size}");
     let mut path_parts = vec![cache_dir.clone()];
-    let default_format = config.default_format.clone();
+    let default_format = config.default_format;
     let mut format_to_serve = match query.format.clone() {
         None => default_format,
         Some(value) => {
