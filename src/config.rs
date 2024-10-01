@@ -1,6 +1,5 @@
 use std::cmp::PartialEq;
 use crate::structs::{Config, Format, ImageRequest, LdapConfig};
-use actix_web::web::Query;
 use std::env;
 
 impl PartialEq for Format {
@@ -30,18 +29,27 @@ pub(crate) fn read_config() -> Config {
         .unwrap_or("false".into())
         .parse()
         .unwrap();
+    let offer_portrait: bool = env::var("OFFER_PORTRAIT_IMAGE")
+        .unwrap_or("true".into())
+        .parse()
+        .unwrap();
     let default_format: Format = match env::var("DEFAULT_FORMAT").unwrap_or("square".into()).as_str() {
         "square" => Format::Square,
         "original" => Format::Original,
         "center" => Format::Center,
+        "portrait" => Format::Portrait,
         _ => Format::Square,
     };
     if offer_centered || default_format == Format::Center {
         formats.push(Format::Center);
     }
+    if offer_portrait || default_format == Format::Portrait {
+        formats.push(Format::Portrait);
+    }
     if offer_original_dimensions || default_format == Format::Original {
         formats.push(Format::Original);
     }
+
     if default_format == Format::Square {
         log::info!("DEFAULT_FORMAT is set to square, this is the default behavior");
     } else if default_format == Format::Original {
@@ -55,13 +63,13 @@ pub(crate) fn read_config() -> Config {
     }
     let mut ldap: Option<LdapConfig> = None;
     if let Ok(ldap_url) = env::var("LDAP_URL") {
-        let ldap_bind_username = env::var("LDAP_BIND_USERNAME").unwrap_or("".into());
-        let ldap_bind_password = env::var("LDAP_BIND_PASSWORD").unwrap_or("".into());
-        let ldap_base_dn = env::var("LDAP_BASE_DN").unwrap_or("".into());
-        let ldap_search_filter = env::var("LDAP_SEARCH_FILTER").unwrap_or("".into());
-        let ldap_input_attribute = env::var("LDAP_INPUT_ATTRIBUTE").unwrap_or("".into());
+        let ldap_bind_username = env::var("LDAP_BIND_USERNAME").unwrap_or_default();
+        let ldap_bind_password = env::var("LDAP_BIND_PASSWORD").unwrap_or_default();
+        let ldap_base_dn = env::var("LDAP_BASE_DN").unwrap_or_default();
+        let ldap_search_filter = env::var("LDAP_SEARCH_FILTER").unwrap_or_default();
+        let ldap_input_attribute = env::var("LDAP_INPUT_ATTRIBUTE").unwrap_or_default();
         let ldap_target_attributes = env::var("LDAP_TARGET_ATTRIBUTES")
-            .unwrap_or("".into())
+            .unwrap_or_default()
             .split(',')
             .map(|s| s.to_string())
             .collect();
@@ -93,7 +101,7 @@ pub(crate) fn read_config() -> Config {
     }
 }
 
-pub(crate) fn read_size(query: Query<ImageRequest>) -> u16 {
+pub(crate) fn read_size(query: ImageRequest) -> u16 {
     if let Some(size_param) = query.s {
         return size_param;
     }
@@ -103,7 +111,7 @@ pub(crate) fn read_size(query: Query<ImageRequest>) -> u16 {
     80
 }
 
-pub(crate) fn read_default(query: Query<ImageRequest>) -> String {
+pub(crate) fn read_default(query: ImageRequest) -> String {
     let mut default: String = "mm".to_string();
     if let Some(default_param) = &query.d {
         default.clone_from(default_param);
@@ -117,11 +125,11 @@ pub(crate) fn read_default(query: Query<ImageRequest>) -> String {
     default
 }
 
-pub(crate) fn read_force_default(query: Query<ImageRequest>) -> bool {
+pub(crate) fn read_force_default(query: ImageRequest) -> bool {
     if let Some(force) = &query.f {
         return force.eq(&'y');
     }
-    if let Some(force) = &query.forcedefault {
+    if let Some(force) = &query.force_default {
         return force.eq(&'y');
     }
     false
