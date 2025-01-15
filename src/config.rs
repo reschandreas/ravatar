@@ -1,5 +1,5 @@
-use std::cmp::PartialEq;
 use crate::structs::{Config, Format, ImageRequest, LdapConfig};
+use std::cmp::PartialEq;
 use std::env;
 
 impl PartialEq for Format {
@@ -33,7 +33,10 @@ pub(crate) fn read_config() -> Config {
         .unwrap_or("true".into())
         .parse()
         .unwrap();
-    let default_format: Format = match env::var("DEFAULT_FORMAT").unwrap_or("square".into()).as_str() {
+    let default_format: Format = match env::var("DEFAULT_FORMAT")
+        .unwrap_or("square".into())
+        .as_str()
+    {
         "square" => Format::Square,
         "original" => Format::Original,
         "center" => Format::Center,
@@ -97,7 +100,7 @@ pub(crate) fn read_config() -> Config {
         log_level,
         ldap,
         formats,
-        sizes : vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
+        sizes: vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
     }
 }
 
@@ -133,4 +136,124 @@ pub(crate) fn read_force_default(query: ImageRequest) -> bool {
         return force.eq(&'y');
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_read_size() {
+        let query = ImageRequest {
+            s: Some(64),
+            size: None,
+            d: None,
+            default: None,
+            f: None,
+            force_default: None,
+            format: None,
+        };
+        assert_eq!(read_size(query), 64);
+        let query = ImageRequest {
+            s: None,
+            size: Some(32),
+            d: None,
+            default: None,
+            f: None,
+            force_default: None,
+            format: None,
+        };
+        assert_eq!(read_size(query), 32);
+    }
+
+    #[test]
+    fn test_read_default() {
+        let query = ImageRequest {
+            s: None,
+            size: None,
+            d: Some("mp".to_string()),
+            default: None,
+            f: None,
+            force_default: None,
+            format: None,
+        };
+        assert_eq!(read_default(query), "mm");
+        let query = ImageRequest {
+            s: None,
+            size: None,
+            d: None,
+            default: Some("mp".to_string()),
+            f: None,
+            force_default: None,
+            format: None,
+        };
+        assert_eq!(read_default(query), "mm");
+    }
+
+    #[test]
+    fn test_read_force_default() {
+        let query = ImageRequest {
+            s: None,
+            size: None,
+            d: None,
+            default: None,
+            f: Some('y'),
+            force_default: None,
+            format: None,
+        };
+        assert_eq!(read_force_default(query), true);
+        let query = ImageRequest {
+            s: None,
+            size: None,
+            d: None,
+            default: None,
+            f: None,
+            force_default: Some('y'),
+            format: None,
+        };
+        assert_eq!(read_force_default(query), true);
+    }
+
+    #[test]
+    fn test_read_config() {
+        env::set_var("PATH_PREFIX", "prefix");
+        env::set_var("RAW_PATH", "raw-path");
+        env::set_var("IMAGES_PATH", "images");
+        env::set_var("EXTENSION", "heic");
+        env::set_var("MM_EXTENSION", "heic");
+        env::set_var("HOST", "remotehost");
+        env::set_var("PORT", "8081");
+        env::set_var("LOG_LEVEL", "some");
+        env::set_var("OFFER_ORIGINAL_DIMENSIONS", "true");
+        env::set_var("OFFER_FACE_CENTERED_IMAGE", "true");
+        env::set_var("OFFER_PORTRAIT_IMAGE", "true");
+        env::set_var("DEFAULT_FORMAT", "portrait");
+        env::set_var("LDAP_URL", "ldap://localhost:389");
+        env::set_var("LDAP_BIND_USERNAME", "cn=admin,dc=example,dc=com");
+        env::set_var("LDAP_BIND_PASSWORD", "admin");
+        env::set_var("LDAP_BASE_DN", "dc=example,dc=com");
+        env::set_var("LDAP_SEARCH_FILTER", "(&(objectClass=inetOrgPerson)(uid=%s))");
+        env::set_var("LDAP_INPUT_ATTRIBUTE", "uid");
+        env::set_var("LDAP_TARGET_ATTRIBUTES", "cn,mail");
+        let config = read_config();
+        assert_eq!(config.host, "remotehost");
+        assert_eq!(config.port, 8081);
+        assert_eq!(config.prefix, "prefix");
+        assert_eq!(config.images, "images");
+        assert_eq!(config.raw, "raw-path");
+        assert_eq!(config.formats, vec![Format::Square, Format::Center, Format::Portrait, Format::Original]);
+        assert_eq!(config.extension, "heic");
+        assert_eq!(config.mm_extension, "heic");
+        assert_eq!(config.default_format, Format::Portrait);
+        assert_eq!(config.log_level, "some");
+        assert_eq!(config.ldap.is_some(), true);
+        let ldap = config.ldap.unwrap();
+        assert_eq!(ldap.url, "ldap://localhost:389");
+        assert_eq!(ldap.bind_username, "cn=admin,dc=example,dc=com");
+        assert_eq!(ldap.bind_password, "admin");
+        assert_eq!(ldap.base_dn, "dc=example,dc=com");
+        assert_eq!(ldap.search_filter, "(&(objectClass=inetOrgPerson)(uid=%s))");
+        assert_eq!(ldap.input_attribute, "uid");
+        assert_eq!(ldap.target_attributes, vec!["cn".to_string(), "mail".to_string()]);
+    }
 }
