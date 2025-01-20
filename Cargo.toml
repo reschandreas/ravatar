@@ -1,6 +1,6 @@
 [package]
 name = "ravatar"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -25,6 +25,7 @@ dlib-face-recognition = { version = "0.3.2", features = ["build-native", "embed-
 image_dlib = { package = "image", version = "0.24", optional = true}
 resvg = "0.44.0"
 random_word = { version = "0.4.3", features = ["en"] }
+tokio = "1.38.1"
 
 [features]
 face_recognition = ["dep:dlib-face-recognition", "dep:image_dlib"]

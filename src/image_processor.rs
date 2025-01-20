@@ -313,11 +313,12 @@ pub fn create_links_for_image(
             );
             let result = fs::hard_link(source, link_path.as_path());
             if result.is_err() {
-                log::error!(
-                    "Could not create link {} to {}",
+                log::info!(
+                    "Could not create link {} to {}, copying instead",
                     source.to_str().unwrap(),
                     link_path.to_str().unwrap()
                 );
+                fs::copy(source, link_path.as_path()).expect("Could not copy file");
             }
         }
     }
@@ -637,5 +638,137 @@ fn svg_to_png(source: &str, output_path: &str) {
         }
     } else {
         log::error!("Could not parse svg data {}", source);
+    }
+}
+
+mod tests {
+    #[allow(unused_imports)]
+    use std::fs;
+    #[allow(unused_imports)]
+    use std::path::{Path, PathBuf};
+    use ldap3::tokio;
+    #[allow(unused_imports)]
+    use crate::structs::Format::*;
+    #[allow(unused_imports)]
+    use super::*;
+
+    #[test]
+    fn test_resize_default() {
+        let config = Config {
+            host: "".to_string(),
+            port: 8080,
+            prefix: "".to_string(),
+            images: "images".to_string(),
+            default_format: Square,
+            mm_extension: "png".to_string(),
+            sizes: vec![64, 128, 256, 512, 1024],
+            formats: vec![Center, Square, Portrait],
+            extension: "png".to_string(),
+            ldap: None,
+            raw: "".to_string(),
+            log_level: "".to_string(),
+        };
+
+        resize_default(&config);
+        let mut hash_to_size = Vec::new();
+        //hardcoded values to see if the resizing is consistent, need to be changed if images are changed
+        hash_to_size.push((Center, 1024, "285545e752f052f8170f91463719ab4f"));
+        hash_to_size.push((Center, 512, "45056602872523e2a671274ef59e59b2"));
+        hash_to_size.push((Center, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
+        hash_to_size.push((Center, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
+        hash_to_size.push((Center, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
+
+        hash_to_size.push((Square, 1024, "285545e752f052f8170f91463719ab4f"));
+        hash_to_size.push((Square, 512, "45056602872523e2a671274ef59e59b2"));
+        hash_to_size.push((Square, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
+        hash_to_size.push((Square, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
+        hash_to_size.push((Square, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
+
+        hash_to_size.push((Portrait, 1024, "285545e752f052f8170f91463719ab4f"));
+        hash_to_size.push((Portrait, 512, "45056602872523e2a671274ef59e59b2"));
+        hash_to_size.push((Portrait, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
+        hash_to_size.push((Portrait, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
+        hash_to_size.push((Portrait, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
+
+        for (format, size, hash) in hash_to_size {
+            let binding = build_path(
+                vec![
+                    config.images.clone(),
+                    format.as_str().to_string(),
+                    size.to_string(),
+                    "mm".to_string(),
+                ],
+                Some(config.mm_extension.clone()),
+            );
+            let path = binding.as_path();
+            println!("checking {}", path.to_str().unwrap());
+            assert_eq!(path.exists(), true);
+
+            use crate::utils::md5_of_content;
+            assert_eq!(md5_of_content(path.to_str().unwrap()), hash);
+        }
+
+        //delete all the files
+        fs::remove_dir_all(config.images).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_lenna_resize() {
+        let input_images = PathBuf::from(["resources", "test", "images"].iter().collect::<PathBuf>());
+        let raw_images = PathBuf::from(["resources", "test", "raw"].iter().collect::<PathBuf>());
+        let converted_images = PathBuf::from(["resources", "test", "converted"].iter().collect::<PathBuf>());
+        let config = Config {
+            host: "".to_string(),
+            port: 8080,
+            prefix: "".to_string(),
+            images: converted_images.to_str().unwrap().to_string(),
+            default_format: Square,
+            mm_extension: "png".to_string(),
+            sizes: vec![64, 128, 256, 512, 1024],
+            formats: vec![Center, Square, Portrait],
+            extension: "png".to_string(),
+            ldap: None,
+            raw: raw_images.to_str().unwrap().to_string(),
+            log_level: "".to_string(),
+        };
+
+        let mut path = raw_images.join("lenna.png");
+
+        process_directory(&converted_images, &config).await;
+        let files = fs::read_dir(&converted_images).unwrap();
+        assert_eq!(files.count(), 0);
+
+        // watch_directory(raw_images.to_str().unwrap().to_string(), &config).await;
+
+        fs::copy(input_images.join("lenna.png"), path).unwrap();
+
+        process_directory(&raw_images, &config).await;
+
+        check_directories(&converted_images, &config);
+
+        path = raw_images.join("monroe.svg");
+        fs::copy(input_images.join("monroe.svg"), path).unwrap();
+
+        process_directory(&raw_images, &config).await;
+        check_directories(&converted_images, &config);
+        fs::remove_dir_all(&converted_images).unwrap()
+    }
+
+    #[cfg(test)]
+    fn check_directories(path: &Path, config: &Config) {
+        let files = fs::read_dir(&path).unwrap();
+        // directories for each format should appear and a .locks directory
+        assert_eq!(files.count(), config.formats.len() + 1);
+        for directory in fs::read_dir(&path).unwrap() {
+            if let Ok(directory) = directory {
+                let directory_name = directory.file_name();
+                let name = directory_name.to_str().unwrap();
+                assert!(directory.file_type().unwrap().is_dir());
+                if name == ".locks" {
+                    continue;
+                }
+                assert!(config.formats.iter().any(|format| name == format.as_str()));
+            }
+        }
     }
 }

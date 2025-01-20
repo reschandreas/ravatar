@@ -2194,7 +2194,7 @@ dependencies = [
 
 [[package]]
 name = "ravatar"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -2214,6 +2214,7 @@ dependencies = [
  "resvg",
  "serde",
  "sha2",
+ "tokio",
  "url",
 ]
 
