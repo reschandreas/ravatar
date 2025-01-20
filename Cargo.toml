@@ -1,30 +1,31 @@
 [package]
 name = "ravatar"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 md-5 = "0.10.6"
-notify = "7.0.0"
+notify = "8.0.0"
 sha2 = "0.10.8"
-futures = "0.3.30"
-image = "0.25.2"
+futures = "0.3.31"
+image = "0.25.5"
 filetime = "0.2.25"
 actix-web = "4.9.0"
-serde = { version = "1.0.210", features = ["derive"] }
-env_logger = "0.11.5"
+serde = { version = "1.0.217", features = ["derive"] }
+env_logger = "0.11.6"
 rayon = "1.10.0"
-anyhow = "1.0.89"
+anyhow = "1.0.95"
 log = "0.4.22"
 rand = "0.8.5"
-ldap3 = "0.11.4"
-url = "2.5.0"
+ldap3 = "0.11.5"
+url = "2.5.4"
 dlib-face-recognition = { version = "0.3.2", features = ["build-native", "embed-all"], optional = true }
 image_dlib = { package = "image", version = "0.24", optional = true}
 resvg = "0.44.0"
 random_word = { version = "0.4.3", features = ["en"] }
+tokio = "1.38.1"
 
 [features]
 face_recognition = ["dep:dlib-face-recognition", "dep:image_dlib"]

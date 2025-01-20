@@ -50,7 +50,11 @@ pub(crate) async fn get_attributes_with_filter(config: Config, input: &str) -> O
             if let Some(value) = matched.attrs.get(&target_attribute) {
                 results.push(value[0].clone());
                 results.push(value[0].clone().to_ascii_lowercase());
-                log::debug!("{} is also known as {}, adding lowercase as well", input, value[0]);
+                log::debug!(
+                    "{} is also known as {}, adding lowercase as well",
+                    input,
+                    value[0]
+                );
             }
         }
     }
