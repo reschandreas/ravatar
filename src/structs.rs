@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FaceLocation {
     pub(crate) top: u32,
@@ -15,7 +14,7 @@ pub(crate) enum Format {
     Square,
     Original,
     Center,
-    Portrait
+    Portrait,
 }
 
 impl Format {
@@ -24,7 +23,7 @@ impl Format {
             Format::Square => "square",
             Format::Original => "original",
             Format::Center => "center",
-            Format::Portrait => "portrait"
+            Format::Portrait => "portrait",
         }
     }
 }
@@ -41,7 +40,7 @@ pub(crate) struct Config {
     pub log_level: String,
     pub formats: Vec<Format>,
     pub ldap: Option<LdapConfig>,
-    pub sizes : Vec<u32>,
+    pub sizes: Vec<u32>,
 }
 
 #[derive(Default, Clone, Debug)]

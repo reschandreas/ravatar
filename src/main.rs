@@ -55,12 +55,12 @@ async fn main() -> std::io::Result<()> {
                     .service(hash),
             )
     })
-        .bind((host, port))?
-        .run()
-        .await
-        .map(|_| {
-            log::info!("shutting down");
-        })
+    .bind((host, port))?
+    .run()
+    .await
+    .map(|_| {
+        log::info!("shutting down");
+    })
 }
 
 #[get("")]
@@ -83,17 +83,21 @@ async fn avatar(
     req: HttpRequest,
 ) -> HttpResponse {
     let query_string = req.query_string();
-    let parsed_query: HashMap<String, String> = url::form_urlencoded::parse(query_string.as_bytes())
-        .into_owned().collect::<Vec<_>>().into_iter().map(
-        |(k, v)| (k, v.to_string())
-    )
-        .collect();
+    let parsed_query: HashMap<String, String> =
+        url::form_urlencoded::parse(query_string.as_bytes())
+            .into_owned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(k, v)| (k, v.to_string()))
+            .collect();
     let query = ImageRequest {
         s: parsed_query.get("s").and_then(|s| s.parse::<u16>().ok()),
         size: parsed_query.get("size").and_then(|s| s.parse::<u16>().ok()),
         d: parsed_query.get("d").cloned(),
         default: parsed_query.get("default").cloned(),
-        force_default: parsed_query.get("forcedefault").and_then(|f| f.chars().next()),
+        force_default: parsed_query
+            .get("forcedefault")
+            .and_then(|f| f.chars().next()),
         f: parsed_query.get("f").and_then(|f| f.chars().next()),
         format: parsed_query.get("format").cloned(),
     };
@@ -107,17 +111,18 @@ async fn avatar(
     let default_format = config.default_format;
     let mut format_to_serve = match query.format.clone() {
         None => default_format,
-        Some(value) => {
-            match value.as_str() {
-                "square" => Format::Square,
-                "original" => Format::Original,
-                "center" => Format::Center,
-                _ => config.default_format
-            }
-        }
+        Some(value) => match value.as_str() {
+            "square" => Format::Square,
+            "original" => Format::Original,
+            "center" => Format::Center,
+            _ => config.default_format,
+        },
     };
     if !config.formats.contains(&format_to_serve) {
-        log::warn!("format {format} is not supported, falling back to default", format = format_to_serve.as_str());
+        log::warn!(
+            "format {format} is not supported, falling back to default",
+            format = format_to_serve.as_str()
+        );
         format_to_serve = default_format;
     }
     path_parts.push(format_to_serve.as_str().to_string());
@@ -134,13 +139,22 @@ async fn avatar(
             }
             "mm" => {
                 path = build_path(
-                    vec![cache_dir.clone(), format_to_serve.as_str().to_string(), size.to_string(), "mm".to_string()],
+                    vec![
+                        cache_dir.clone(),
+                        format_to_serve.as_str().to_string(),
+                        size.to_string(),
+                        "mm".to_string(),
+                    ],
                     Some(config.extension.clone()),
                 );
             }
             _ => {
                 path = build_path(
-                    vec![cache_dir.clone(), format_to_serve.as_str().to_string(), default.clone()],
+                    vec![
+                        cache_dir.clone(),
+                        format_to_serve.as_str().to_string(),
+                        default.clone(),
+                    ],
                     Some(config.extension.clone()),
                 );
             }
@@ -148,16 +162,58 @@ async fn avatar(
     }
     if let Ok(image_content) = web::block(move || fs::read(path)).await {
         match image_content {
-            Ok(content) => {
-                HttpResponse::build(StatusCode::OK)
-                    .content_type(format!("image/{}", config.extension))
-                    .body(content)
-            }
-            Err(_) => {
-                HttpResponse::NotFound().finish()
-            }
+            Ok(content) => HttpResponse::build(StatusCode::OK)
+                .content_type(format!("image/{}", config.extension))
+                .body(content),
+            Err(_) => HttpResponse::NotFound().finish(),
         }
     } else {
         HttpResponse::NotFound().finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use actix_web::{test, App};
+    use super::*;
+
+    #[actix_web::test]
+    async fn test_healthz_get() {
+        let app = test::init_service(App::new().service(web::scope("/healthz").service(healthz))).await;
+        let req = test::TestRequest::get().uri("/healthz").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+        let content = test::read_body(resp).await;
+        assert_eq!(content, "OK");
+    }
+
+    #[actix_web::test]
+    async fn test_hash_get() {
+        let state = AppState {
+            config: Config {
+                host: String::from("localhost"),
+                port: 8080,
+                prefix: "".to_string(),
+                images: "images".to_string(),
+                raw: "raw".to_string(),
+                extension: "png".to_string(),
+                mm_extension: "png".to_string(),
+                default_format: Format::Square,
+                log_level: "info".to_string(),
+                ldap: None,
+                formats: Vec::from([Format::Square, Format::Center, Format::Original]),
+                sizes:  vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024]
+            }
+        };
+        let app = test::init_service(App::new().service(
+            web::scope(&state.config.prefix.clone())
+                .app_data(web::Data::new(state.clone()))
+                .service(hash),
+        )).await;
+        let req = test::TestRequest::get().uri("/hash/input").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+        let content = test::read_body(resp).await;
+        assert_eq!(content, "input c96c6d5be8d08a12e7b5cdc1b207fa6b2430974c86803d8891675e76fd992c20 a43c1b0aa53a0c908810c06ab1ff3967");
     }
 }

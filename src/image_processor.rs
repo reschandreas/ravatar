@@ -1,4 +1,5 @@
 use crate::ldap::get_attributes_with_filter;
+use crate::structs::Format::{Portrait, Square};
 use crate::structs::{Config, FaceLocation, Format};
 use crate::utils::{build_path, create_directory, get_filename, get_full_filename};
 use crate::{md5, sha256};
@@ -11,22 +12,26 @@ use notify::event::DataChange::Content;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use rand::random;
+use random_word::Lang;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
+use resvg::tiny_skia::Pixmap;
+use resvg::usvg::Tree;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, vec};
-use std::ffi::OsStr;
-use random_word::Lang;
-use resvg::tiny_skia::Pixmap;
-use resvg::usvg::Tree;
-use crate::structs::Format::{Portrait, Square};
 
 pub fn resize_default(config: &Config) {
     create_directory(Path::new(&config.images));
     let extension = config.mm_extension.clone();
     let binding = build_path(
-        vec![config.images.clone(), config.default_format.as_str().parse().unwrap(), 1024.to_string(), "mm".to_string()],
+        vec![
+            config.images.clone(),
+            config.default_format.as_str().parse().unwrap(),
+            1024.to_string(),
+            "mm".to_string(),
+        ],
         Some(extension.clone()),
     );
     let path = binding.as_path();
@@ -51,10 +56,22 @@ pub fn resize_default(config: &Config) {
         }
         config.sizes.par_iter().for_each(|size| {
             config.formats.par_iter().for_each(|format| {
-                let directory = build_path(vec![image_path.clone(), format.as_str().parse().unwrap(), size.to_string()], None);
+                let directory = build_path(
+                    vec![
+                        image_path.clone(),
+                        format.as_str().parse().unwrap(),
+                        size.to_string(),
+                    ],
+                    None,
+                );
                 create_directory(directory.as_path());
                 let binding = build_path(
-                    vec![image_path.clone(), format.as_str().parse().unwrap(), size.to_string(), name.to_string()],
+                    vec![
+                        image_path.clone(),
+                        format.as_str().parse().unwrap(),
+                        size.to_string(),
+                        name.to_string(),
+                    ],
                     Some(config.extension.clone()),
                 );
                 let source_path = source_binding.as_path();
@@ -67,7 +84,7 @@ pub fn resize_default(config: &Config) {
                     Vec::default(),
                     config.clone(),
                     &Square,
-                    None
+                    None,
                 );
             });
         });
@@ -180,7 +197,15 @@ pub async fn handle_image(source: &Path, config: &Config) {
             let mut face_data: Option<FaceLocation> = None;
             if config.formats.contains(&Format::Center) {
                 let random_size = *config.sizes.last().unwrap();
-                let path = build_path(vec![config.images.clone(), Format::Center.as_str().to_string(), random_size.to_string(), md5_hash.clone()], Some(config.extension.clone()));
+                let path = build_path(
+                    vec![
+                        config.images.clone(),
+                        Format::Center.as_str().to_string(),
+                        random_size.to_string(),
+                        md5_hash.clone(),
+                    ],
+                    Some(config.extension.clone()),
+                );
                 if needs_update(source, path.as_path()) {
                     face_data = detect_face_in_image(source);
                     if face_data.is_none() {
@@ -189,47 +214,74 @@ pub async fn handle_image(source: &Path, config: &Config) {
                 }
             }
             let alternate_names = get_alternate_names_of(config.clone(), &filename).await;
-            parallel_resize_image(before, filename, source, md5_hash.clone(), config.clone(), face_data, alternate_names.clone());
-
+            parallel_resize_image(
+                before,
+                filename,
+                source,
+                md5_hash.clone(),
+                config.clone(),
+                face_data,
+                alternate_names.clone(),
+            );
         }
         unlock_image(source, config.clone(), lock);
     }
 }
 
-fn parallel_resize_image(before: Instant, filename: String, image: &Path, md5_hash: String, config: Config, face_data: Option<FaceLocation>, alternate_names: Vec<String>) -> bool {
-    let was_resized: Vec<bool> = config.sizes.par_iter().map(|size| {
-        let was_resized_format: Vec<bool> = config.formats.par_iter().map(|format| {
-            let mut path = vec![config.images.clone(), format.as_str().to_string(), size.to_string()];
-            let binding = build_path(path.clone(), None);
-            let size_path = binding.as_path();
-            create_directory(size_path);
+fn parallel_resize_image(
+    before: Instant,
+    filename: String,
+    image: &Path,
+    md5_hash: String,
+    config: Config,
+    face_data: Option<FaceLocation>,
+    alternate_names: Vec<String>,
+) -> bool {
+    let was_resized: Vec<bool> = config
+        .sizes
+        .par_iter()
+        .map(|size| {
+            let was_resized_format: Vec<bool> = config
+                .formats
+                .par_iter()
+                .map(|format| {
+                    let mut path = vec![
+                        config.images.clone(),
+                        format.as_str().to_string(),
+                        size.to_string(),
+                    ];
+                    let binding = build_path(path.clone(), None);
+                    let size_path = binding.as_path();
+                    create_directory(size_path);
 
-            path.push(md5_hash.clone());
-            let binding = build_path(path, Some(config.extension.clone()));
+                    path.push(md5_hash.clone());
+                    let binding = build_path(path, Some(config.extension.clone()));
 
-            let cache_path = binding.as_path();
+                    let cache_path = binding.as_path();
 
-            if needs_update(image, cache_path) {
-                log::debug!("resizing {} to {}", image.to_str().unwrap(), size);
-                resize_image(
-                    image,
-                    cache_path,
-                    *size,
-                    size_path,
-                    alternate_names.clone(),
-                    config.clone(),
-                    format,
-                    face_data,
-                );
+                    if needs_update(image, cache_path) {
+                        log::debug!("resizing {} to {}", image.to_str().unwrap(), size);
+                        resize_image(
+                            image,
+                            cache_path,
+                            *size,
+                            size_path,
+                            alternate_names.clone(),
+                            config.clone(),
+                            format,
+                            face_data,
+                        );
+                        return true;
+                    }
+                    false
+                })
+                .collect();
+            if was_resized_format.iter().any(|x| *x) {
                 return true;
             }
             false
-        }).collect();
-        if was_resized_format.iter().any(|x| *x) {
-            return true;
-        }
-        false
-    }).collect();
+        })
+        .collect();
     if was_resized.iter().any(|x| *x) {
         log::info!("resized {} in {:?}", filename, before.elapsed());
         return true;
@@ -247,10 +299,7 @@ pub fn create_links_for_image(
         create_directory(directory);
     }
     for name in alternate_names {
-        let target_directory = build_path(
-            vec![directory.to_str().unwrap().parse().unwrap()],
-            None,
-        );
+        let target_directory = build_path(vec![directory.to_str().unwrap().parse().unwrap()], None);
         create_directory(target_directory.as_path());
         let link_path = build_path(
             vec![directory.to_str().unwrap().parse().unwrap(), name],
@@ -264,11 +313,12 @@ pub fn create_links_for_image(
             );
             let result = fs::hard_link(source, link_path.as_path());
             if result.is_err() {
-                log::error!(
-                    "Could not create link {} to {}",
+                log::info!(
+                    "Could not create link {} to {}, copying instead",
                     source.to_str().unwrap(),
                     link_path.to_str().unwrap()
                 );
+                fs::copy(source, link_path.as_path()).expect("Could not copy file");
             }
         }
     }
@@ -412,7 +462,7 @@ fn resize_image(
     alternate_names: Vec<String>,
     config: Config,
     format: &Format,
-    face_location: Option<FaceLocation>
+    face_location: Option<FaceLocation>,
 ) {
     if !Path::exists(source) {
         log::info!("source does not exist {}", source.to_str().unwrap());
@@ -423,7 +473,10 @@ fn resize_image(
     if path.extension() == Some(OsStr::new("svg")) {
         log::debug!("found a svg file");
         let word = random_word::gen(Lang::En);
-        let binding = build_path(vec!["/tmp".to_string(), word.to_string()], Some("png".to_string()));
+        let binding = build_path(
+            vec!["/tmp".to_string(), word.to_string()],
+            Some("png".to_string()),
+        );
         temp_file = Some(binding.as_path().to_path_buf());
         svg_to_png(source.to_str().unwrap(), binding.to_str().unwrap());
         path = temp_file.as_ref().unwrap().as_path();
@@ -450,7 +503,11 @@ fn resize_image(
 
     if format == &Format::Center && image.width() != image.height() {
         if let Some(face) = face_location {
-            log::debug!("Found face in image {} at {:?}", source.to_str().unwrap(), face);
+            log::debug!(
+                "Found face in image {} at {:?}",
+                source.to_str().unwrap(),
+                face
+            );
             let face_x = face.left;
             let face_y = face.top;
             let face_width = face.right - face.left;
@@ -484,7 +541,6 @@ fn resize_image(
     } else {
         image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
     }
-
 
     let result = image.save_with_format(
         destination,
@@ -564,9 +620,15 @@ fn svg_to_png(source: &str, output_path: &str) {
     let content = fs::read(source).unwrap();
     if let Ok(rtree) = Tree::from_data(&content, &opt) {
         // Set up the render target
-        if let Some(mut pixmap) = Pixmap::new(rtree.size().width() as u32, rtree.size().height() as u32) {
+        if let Some(mut pixmap) =
+            Pixmap::new(rtree.size().width() as u32, rtree.size().height() as u32)
+        {
             // Render the SVG
-            resvg::render(&rtree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
+            resvg::render(
+                &rtree,
+                resvg::tiny_skia::Transform::default(),
+                &mut pixmap.as_mut(),
+            );
 
             // Save the output as PNG
             log::debug!("Svg to {}.", output_path);
@@ -576,5 +638,137 @@ fn svg_to_png(source: &str, output_path: &str) {
         }
     } else {
         log::error!("Could not parse svg data {}", source);
+    }
+}
+
+mod tests {
+    #[allow(unused_imports)]
+    use std::fs;
+    #[allow(unused_imports)]
+    use std::path::{Path, PathBuf};
+    use ldap3::tokio;
+    #[allow(unused_imports)]
+    use crate::structs::Format::*;
+    #[allow(unused_imports)]
+    use super::*;
+
+    #[test]
+    fn test_resize_default() {
+        let config = Config {
+            host: "".to_string(),
+            port: 8080,
+            prefix: "".to_string(),
+            images: "images".to_string(),
+            default_format: Square,
+            mm_extension: "png".to_string(),
+            sizes: vec![64, 128, 256, 512, 1024],
+            formats: vec![Center, Square, Portrait],
+            extension: "png".to_string(),
+            ldap: None,
+            raw: "".to_string(),
+            log_level: "".to_string(),
+        };
+
+        resize_default(&config);
+        let mut hash_to_size = Vec::new();
+        //hardcoded values to see if the resizing is consistent, need to be changed if images are changed
+        hash_to_size.push((Center, 1024, "285545e752f052f8170f91463719ab4f"));
+        hash_to_size.push((Center, 512, "45056602872523e2a671274ef59e59b2"));
+        hash_to_size.push((Center, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
+        hash_to_size.push((Center, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
+        hash_to_size.push((Center, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
+
+        hash_to_size.push((Square, 1024, "285545e752f052f8170f91463719ab4f"));
+        hash_to_size.push((Square, 512, "45056602872523e2a671274ef59e59b2"));
+        hash_to_size.push((Square, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
+        hash_to_size.push((Square, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
+        hash_to_size.push((Square, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
+
+        hash_to_size.push((Portrait, 1024, "285545e752f052f8170f91463719ab4f"));
+        hash_to_size.push((Portrait, 512, "45056602872523e2a671274ef59e59b2"));
+        hash_to_size.push((Portrait, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
+        hash_to_size.push((Portrait, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
+        hash_to_size.push((Portrait, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
+
+        for (format, size, hash) in hash_to_size {
+            let binding = build_path(
+                vec![
+                    config.images.clone(),
+                    format.as_str().to_string(),
+                    size.to_string(),
+                    "mm".to_string(),
+                ],
+                Some(config.mm_extension.clone()),
+            );
+            let path = binding.as_path();
+            println!("checking {}", path.to_str().unwrap());
+            assert_eq!(path.exists(), true);
+
+            use crate::utils::md5_of_content;
+            assert_eq!(md5_of_content(path.to_str().unwrap()), hash);
+        }
+
+        //delete all the files
+        fs::remove_dir_all(config.images).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_lenna_resize() {
+        let input_images = PathBuf::from(["resources", "test", "images"].iter().collect::<PathBuf>());
+        let raw_images = PathBuf::from(["resources", "test", "raw"].iter().collect::<PathBuf>());
+        let converted_images = PathBuf::from(["resources", "test", "converted"].iter().collect::<PathBuf>());
+        let config = Config {
+            host: "".to_string(),
+            port: 8080,
+            prefix: "".to_string(),
+            images: converted_images.to_str().unwrap().to_string(),
+            default_format: Square,
+            mm_extension: "png".to_string(),
+            sizes: vec![64, 128, 256, 512, 1024],
+            formats: vec![Center, Square, Portrait],
+            extension: "png".to_string(),
+            ldap: None,
+            raw: raw_images.to_str().unwrap().to_string(),
+            log_level: "".to_string(),
+        };
+
+        let mut path = raw_images.join("lenna.png");
+
+        process_directory(&converted_images, &config).await;
+        let files = fs::read_dir(&converted_images).unwrap();
+        assert_eq!(files.count(), 0);
+
+        // watch_directory(raw_images.to_str().unwrap().to_string(), &config).await;
+
+        fs::copy(input_images.join("lenna.png"), path).unwrap();
+
+        process_directory(&raw_images, &config).await;
+
+        check_directories(&converted_images, &config);
+
+        path = raw_images.join("monroe.svg");
+        fs::copy(input_images.join("monroe.svg"), path).unwrap();
+
+        process_directory(&raw_images, &config).await;
+        check_directories(&converted_images, &config);
+        fs::remove_dir_all(&converted_images).unwrap()
+    }
+
+    #[cfg(test)]
+    fn check_directories(path: &Path, config: &Config) {
+        let files = fs::read_dir(&path).unwrap();
+        // directories for each format should appear and a .locks directory
+        assert_eq!(files.count(), config.formats.len() + 1);
+        for directory in fs::read_dir(&path).unwrap() {
+            if let Ok(directory) = directory {
+                let directory_name = directory.file_name();
+                let name = directory_name.to_str().unwrap();
+                assert!(directory.file_type().unwrap().is_dir());
+                if name == ".locks" {
+                    continue;
+                }
+                assert!(config.formats.iter().any(|format| name == format.as_str()));
+            }
+        }
     }
 }
