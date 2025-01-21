@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    tags:
+      - "v*.*.*"
+    branches:
+      - main
+    paths-ignore:
+      - "README.md"
+
+jobs:
+  tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # if you have an MSRV, you can of course include it here too.
+        rust: [stable, beta, nightly]
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - uses: hecrj/setup-rust-action@v2
+        with:
+          rust-version: ${{ matrix.rust }}
+      - run: cargo test --verbose --workspace
