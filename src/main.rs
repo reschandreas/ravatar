@@ -34,7 +34,7 @@ async fn main() -> std::io::Result<()> {
             let raw_path = Path::new(binding.as_str());
             resize_default(&cloned_config);
             process_directory(raw_path, &cloned_config).await;
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(86400)).await;
         }
     });
     let cloned_config = state.config.clone();

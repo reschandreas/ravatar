@@ -1,6 +1,7 @@
 # Ravatar
 
 ![build](https://github.com/reschandreas/ravatar/actions/workflows/build-and-push.yaml/badge.svg)
+![tests](https://github.com/reschandreas/ravatar/actions/workflows/tests.yaml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![GitHub Release](https://img.shields.io/github/v/release/reschandreas/ravatar)
 

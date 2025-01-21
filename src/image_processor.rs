@@ -445,7 +445,9 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: &Config) -> notify::Result
                     log::info!("a file was removed");
                     evacuate_image(&event.paths[0], config).await;
                 }
-                _ => {}
+                _ => {
+                    log::debug!("unhandled event: {:?}", event);
+                }
             },
             Err(e) => log::error!("watch error: {:?}", e),
         }
@@ -737,8 +739,6 @@ mod tests {
         process_directory(&converted_images, &config).await;
         let files = fs::read_dir(&converted_images).unwrap();
         assert_eq!(files.count(), 0);
-
-        // watch_directory(raw_images.to_str().unwrap().to_string(), &config).await;
 
         fs::copy(input_images.join("lenna.png"), path).unwrap();
 
