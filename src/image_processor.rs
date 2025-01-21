@@ -445,7 +445,9 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: &Config) -> notify::Result
                     log::info!("a file was removed");
                     evacuate_image(&event.paths[0], config).await;
                 }
-                _ => {}
+                _ => {
+                    log::debug!("unhandled event: {:?}", event);
+                }
             },
             Err(e) => log::error!("watch error: {:?}", e),
         }
