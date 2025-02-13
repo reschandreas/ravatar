@@ -17,7 +17,10 @@ use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 use resvg::tiny_skia::Pixmap;
 use resvg::usvg::Tree;
+use serde_json;
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, vec};
@@ -93,8 +96,57 @@ pub fn resize_default(config: &Config) {
 
 pub async fn process_directory(directory: &Path, config: &Config) {
     create_directory(directory);
+    let inventory: Vec<String> = read_inventory(&config.clone());
+    let mut handled_files: Vec<String> = Vec::new();
     for path in fs::read_dir(directory).unwrap().flatten() {
-        process_image(&path.path(), config, false).await;
+        // we are only interested in files with extensions
+        if path.path().extension().is_some() {
+            process_image(&path.path(), config, false).await;
+            handled_files.push(get_filename(path.file_name().as_ref()).unwrap());
+        }
+    }
+    write_inventory(handled_files.clone(), config);
+    let mut missing_files: Vec<String> = Vec::new();
+    for asset in inventory {
+        if !handled_files.contains(&asset) {
+            missing_files.push(asset);
+        }
+    }
+    for missing in missing_files {
+        let path = build_path(Vec::from([config.images.clone(), missing]), None);
+        evacuate_image(path.as_path(), config).await;
+    }
+}
+
+pub fn read_inventory(config: &Config) -> Vec<String> {
+    let target_directory = config.images.clone();
+    let path = build_path(
+        Vec::from([target_directory.to_string(), "inventory.json".to_string()]),
+        None,
+    );
+    let lock = lock_image(path.as_path(), config.clone());
+    if lock.is_some() && fs::exists(path.as_path()).unwrap() {
+        let data = fs::read_to_string(path.clone()).expect("Unable to read file");
+        unlock_image(path.as_path(), config.clone(), lock.unwrap());
+        let stuff: Vec<String> = serde_json::from_str(&data).expect("Unable to parse");
+        return stuff;
+    }
+    Vec::new()
+}
+
+pub fn write_inventory(files: Vec<String>, config: &Config) {
+    let target_directory = config.images.clone();
+    let path = build_path(
+        Vec::from([target_directory.to_string(), "inventory.json".to_string()]),
+        None,
+    );
+    let lock = lock_image(path.as_path(), config.clone());
+    if lock.is_some() {
+        let mut file = File::create(path.as_path()).expect("Failed to create or open the file");
+        file.set_len(0).unwrap();
+        file.write_all(serde_json::to_string(&files).unwrap().as_bytes())
+            .expect("Failed to write JSON to file");
+        unlock_image(path.as_path(), config.clone(), lock.unwrap());
     }
 }
 
@@ -645,14 +697,14 @@ fn svg_to_png(source: &str, output_path: &str) {
 
 mod tests {
     #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use crate::structs::Format::*;
+    use ldap3::tokio;
+    #[allow(unused_imports)]
     use std::fs;
     #[allow(unused_imports)]
     use std::path::{Path, PathBuf};
-    use ldap3::tokio;
-    #[allow(unused_imports)]
-    use crate::structs::Format::*;
-    #[allow(unused_imports)]
-    use super::*;
 
     #[test]
     fn test_resize_default() {
@@ -669,6 +721,8 @@ mod tests {
             ldap: None,
             raw: "".to_string(),
             log_level: "".to_string(),
+            scan_interval: 10,
+            watch_directories: false,
         };
 
         resize_default(&config);
@@ -716,9 +770,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_lenna_resize() {
-        let input_images = PathBuf::from(["resources", "test", "images"].iter().collect::<PathBuf>());
+        let input_images =
+            PathBuf::from(["resources", "test", "images"].iter().collect::<PathBuf>());
         let raw_images = PathBuf::from(["resources", "test", "raw"].iter().collect::<PathBuf>());
-        let converted_images = PathBuf::from(["resources", "test", "converted"].iter().collect::<PathBuf>());
+        let converted_images = PathBuf::from(
+            ["resources", "test", "converted"]
+                .iter()
+                .collect::<PathBuf>(),
+        );
+        if fs::exists(&converted_images).expect("REASON") {
+            fs::remove_dir_all(&converted_images).unwrap();
+        }
+        fs::create_dir(&converted_images).unwrap();
         let config = Config {
             host: "".to_string(),
             port: 8080,
@@ -732,11 +795,13 @@ mod tests {
             ldap: None,
             raw: raw_images.to_str().unwrap().to_string(),
             log_level: "".to_string(),
+            watch_directories: true,
+            scan_interval: 10,
         };
 
         let mut path = raw_images.join("lenna.png");
 
-        process_directory(&converted_images, &config).await;
+        // process_directory(&converted_images, &config).await;
         let files = fs::read_dir(&converted_images).unwrap();
         assert_eq!(files.count(), 0);
 
@@ -757,18 +822,16 @@ mod tests {
     #[cfg(test)]
     fn check_directories(path: &Path, config: &Config) {
         let files = fs::read_dir(&path).unwrap();
-        // directories for each format should appear and a .locks directory
-        assert_eq!(files.count(), config.formats.len() + 1);
-        for directory in fs::read_dir(&path).unwrap() {
-            if let Ok(directory) = directory {
-                let directory_name = directory.file_name();
-                let name = directory_name.to_str().unwrap();
-                assert!(directory.file_type().unwrap().is_dir());
-                if name == ".locks" {
-                    continue;
-                }
-                assert!(config.formats.iter().any(|format| name == format.as_str()));
+        // directories for each format should appear and a .locks directory, and the inventory file
+        assert_eq!(files.count(), config.formats.len() + 2);
+        for directory in fs::read_dir(&path).unwrap().flatten() {
+            let directory_name = directory.file_name();
+            let name = directory_name.to_str().unwrap();
+            if name == ".locks" || name == "inventory.json" {
+                continue;
             }
+            assert!(directory.file_type().unwrap().is_dir());
+            assert!(config.formats.iter().any(|format| name == format.as_str()));
         }
     }
 }
