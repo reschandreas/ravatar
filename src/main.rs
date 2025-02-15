@@ -34,15 +34,22 @@ async fn main() -> std::io::Result<()> {
             let raw_path = Path::new(binding.as_str());
             resize_default(&cloned_config);
             process_directory(raw_path, &cloned_config).await;
-            tokio::time::sleep(tokio::time::Duration::from_secs(86400)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(
+                cloned_config.scan_interval * 60,
+            ))
+            .await;
         }
     });
     let cloned_config = state.config.clone();
-    tokio::spawn(async move {
-        log::debug!("starting watch");
-        let raw_path = cloned_config.raw.clone();
-        watch_directory(raw_path, &cloned_config.clone()).await;
-    });
+    if cloned_config.watch_directories {
+        tokio::spawn(async move {
+            log::debug!("starting watch");
+            let raw_path = cloned_config.raw.clone();
+            watch_directory(raw_path, &cloned_config.clone()).await;
+        });
+    } else {
+        log::debug!("not watching directories, as WATCHING_DIRECTORIES is false");
+    }
     log::info!("Starting server at http://{host}:{port}");
     HttpServer::new(move || {
         App::new()
@@ -174,12 +181,13 @@ async fn avatar(
 
 #[cfg(test)]
 mod tests {
-    use actix_web::{test, App};
     use super::*;
+    use actix_web::{test, App};
 
     #[actix_web::test]
     async fn test_healthz_get() {
-        let app = test::init_service(App::new().service(web::scope("/healthz").service(healthz))).await;
+        let app =
+            test::init_service(App::new().service(web::scope("/healthz").service(healthz))).await;
         let req = test::TestRequest::get().uri("/healthz").to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
@@ -202,14 +210,19 @@ mod tests {
                 log_level: "info".to_string(),
                 ldap: None,
                 formats: Vec::from([Format::Square, Format::Center, Format::Original]),
-                sizes:  vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024]
-            }
+                sizes: vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
+                scan_interval: 10,
+                watch_directories: false,
+            },
         };
-        let app = test::init_service(App::new().service(
-            web::scope(&state.config.prefix.clone())
-                .app_data(web::Data::new(state.clone()))
-                .service(hash),
-        )).await;
+        let app = test::init_service(
+            App::new().service(
+                web::scope(&state.config.prefix.clone())
+                    .app_data(web::Data::new(state.clone()))
+                    .service(hash),
+            ),
+        )
+        .await;
         let req = test::TestRequest::get().uri("/hash/input").to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
