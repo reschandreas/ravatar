@@ -9,6 +9,9 @@ spec:
     {{- if not .Values.autoscaling.enabled }}
     replicas: {{ .Values.replicaCount }}
     {{- end }}
+  {{- else  }}
+    revisionHistoryLimit: 3
+    replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:

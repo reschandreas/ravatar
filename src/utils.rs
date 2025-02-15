@@ -39,31 +39,13 @@ pub(crate) fn create_directory(path: &Path) {
     fs::create_dir_all(path).expect("Could not create directory");
 }
 
-pub(crate) fn get_extension(path: &Path) -> Option<String> {
-    let extension = path.extension();
-    if let Some(extension) = extension {
-        return Some(extension.to_str()?.to_string());
-    }
-    None
-}
-
 pub(crate) fn get_full_filename(path: &Path) -> String {
     let buffer = path.to_path_buf();
     buffer.iter().last().unwrap().to_str().unwrap().to_string()
 }
 
 pub(crate) fn get_filename(path: &Path) -> Option<String> {
-    let filename = get_full_filename(path);
-    if let Some(extension) = get_extension(path) {
-        return Some(
-            filename
-                .replace(format!(".{extension}").as_str(), "")
-                .trim()
-                .parse()
-                .unwrap(),
-        );
-    }
-    None
+    path.file_name()?.to_str().map(|s| s.to_string())
 }
 
 pub(crate) fn build_path(parts: Vec<String>, extension: Option<String>) -> PathBuf {
@@ -97,31 +79,14 @@ mod tests {
     #[test]
     fn test_create_directory() {
         let path = Path::new("test_create_directory");
-        assert_eq!(path.exists(), false);
+        assert!(!path.exists());
         create_directory(path);
-        assert_eq!(path.exists(), true);
+        assert!(path.exists());
         create_directory(path);
-        assert_eq!(path.exists(), true);
+        assert!(path.exists());
         fs::remove_dir(path).unwrap();
     }
-
-    #[test]
-    fn test_get_extension() {
-        for extension in &["txt", "jpeg", "svg", "png"] {
-            let control_path = &format!("testfile.{}", extension);
-            let path = Path::new(control_path);
-            assert_eq!(get_extension(path), Some(extension.to_string()));
-        }
-    }
-
-    #[test]
-    fn test_get_no_extension() {
-        let control_path = &"testfile".to_string();
-        let path = Path::new(control_path);
-        assert_eq!(get_extension(path), None);
-        assert_eq!(get_filename(path), None);
-    }
-
+    
     #[test]
     fn test_get_full_filename() {
         for extension in &["txt", "jpeg", "svg", "png"] {

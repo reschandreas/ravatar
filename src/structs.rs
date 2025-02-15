@@ -41,6 +41,8 @@ pub(crate) struct Config {
     pub formats: Vec<Format>,
     pub ldap: Option<LdapConfig>,
     pub sizes: Vec<u32>,
+    pub watch_directories: bool,
+    pub scan_interval: u64,
 }
 
 #[derive(Default, Clone, Debug)]

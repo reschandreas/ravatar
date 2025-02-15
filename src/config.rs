@@ -20,6 +20,11 @@ pub(crate) fn read_config() -> Config {
     let host = env::var("HOST").unwrap_or("0.0.0.0".into());
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
     let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
+    let scan_interval = env::var("SCAN_INTERVAL").unwrap_or("60".into()).parse().unwrap();
+    let watch_directories: bool = env::var("WATCH_DIRECTORIES")
+        .unwrap_or("true".into())
+        .parse()
+        .unwrap();
     let mut formats: Vec<Format> = vec![Format::Square];
     let offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
         .unwrap_or("false".into())
@@ -101,6 +106,8 @@ pub(crate) fn read_config() -> Config {
         ldap,
         formats,
         sizes: vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
+        watch_directories,
+        scan_interval
     }
 }
 
@@ -228,6 +235,8 @@ mod tests {
         env::set_var("OFFER_FACE_CENTERED_IMAGE", "true");
         env::set_var("OFFER_PORTRAIT_IMAGE", "true");
         env::set_var("DEFAULT_FORMAT", "portrait");
+        env::set_var("WATCH_DIRECTORIES", "false");
+        env::set_var("SCAN_INTERVAL", "10");
         env::set_var("LDAP_URL", "ldap://localhost:389");
         env::set_var("LDAP_BIND_USERNAME", "cn=admin,dc=example,dc=com");
         env::set_var("LDAP_BIND_PASSWORD", "admin");
@@ -246,6 +255,8 @@ mod tests {
         assert_eq!(config.mm_extension, "heic");
         assert_eq!(config.default_format, Format::Portrait);
         assert_eq!(config.log_level, "some");
+        assert_eq!(config.scan_interval, 10);
+        assert_eq!(config.watch_directories, false);
         assert_eq!(config.ldap.is_some(), true);
         let ldap = config.ldap.unwrap();
         assert_eq!(ldap.url, "ldap://localhost:389");
