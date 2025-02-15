@@ -7,11 +7,10 @@ metadata:
 spec:
   {{- if hasKey .Values "autoscaling" }}
     {{- if not .Values.autoscaling.enabled }}
-    replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.replicaCount }}
     {{- end }}
   {{- else  }}
-    revisionHistoryLimit: 3
-    replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
@@ -70,6 +69,10 @@ spec:
               value: {{ .Values.ravatar.offerFaceCenteredImage | default false | quote }}
             - name: OFFER_PORTRAIT_IMAGE
               value: {{ .Values.ravatar.offerPortraitImage | default false | quote }}
+            - name: WATCH_DIRECTORIES
+              value: {{ .Values.ravatar.watchDirectories | default true | quote}}
+            - name: SCAN_INTERVAL
+              value: {{ .Values.ravatar.scanInterval | default 60 | quote}}
             {{ if .Values.ravatar.ldap.enabled }}
             - name: LDAP_URL
               value: {{ .Values.ravatar.ldap.url | quote }}
