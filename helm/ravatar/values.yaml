@@ -17,6 +17,8 @@ ravatar:
   offerOriginalDimensions: false
   offerFaceCenteredImage: false
   offerPortraitImage: false
+  watchDirectories: true
+  scanInterval: 60
   ldap:
     enabled: false
 

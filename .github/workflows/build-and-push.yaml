@@ -10,6 +10,7 @@ on:
       - main
     paths-ignore:
       - "README.md"
+      - helm/
 
 env:
   REGISTRY: ghcr.io

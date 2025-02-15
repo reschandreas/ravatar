@@ -70,6 +70,10 @@ spec:
               value: {{ .Values.ravatar.offerFaceCenteredImage | default false | quote }}
             - name: OFFER_PORTRAIT_IMAGE
               value: {{ .Values.ravatar.offerPortraitImage | default false | quote }}
+            - name: WATCH_DIRECTORIES
+              value: {{ .Values.ravatar.watchDirectories | default true | quote}}
+            - name: SCAN_INTERVAL
+              value: {{ .Values.ravatar.scanInterval | default 60 | quote}}
             {{ if .Values.ravatar.ldap.enabled }}
             - name: LDAP_URL
               value: {{ .Values.ravatar.ldap.url | quote }}
