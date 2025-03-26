@@ -2,6 +2,17 @@ apiVersion: v1
 entries:
   ravatar:
   - apiVersion: v2
+    appVersion: v0.1.7
+    created: "2025-03-26T18:43:48.801901622Z"
+    description: Ravatar is an implementation of the Libavatar service, which make
+      it easy to host your own avatar service.
+    digest: 1324bbbf7aeed0a5a76ff7ebdef58579b2a0cf2c2900c52139753b2c17c4e5bf
+    name: ravatar
+    type: application
+    urls:
+    - https://github.com/reschandreas/ravatar/releases/download/ravatar-0.1.10/ravatar-0.1.10.tgz
+    version: 0.1.10
+  - apiVersion: v2
     appVersion: v0.1.6
     created: "2025-02-15T12:59:26.19017843Z"
     description: Ravatar is an implementation of the Libavatar service, which make
@@ -111,4 +122,4 @@ entries:
     urls:
     - https://github.com/reschandreas/ravatar/releases/download/ravatar-0.1.0/ravatar-0.1.0.tgz
     version: 0.1.0
-generated: "2025-02-15T12:59:26.190227041Z"
+generated: "2025-03-26T18:43:48.80195421Z"
