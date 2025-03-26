@@ -1,6 +1,6 @@
 use crate::ldap::get_attributes_with_filter;
 use crate::structs::Format::{Portrait, Square};
-use crate::structs::{Config, FaceLocation, Format};
+use crate::structs::{Config, FaceLocation, Format, ResizableImage};
 use crate::utils::{build_path, create_directory, get_filename, get_full_filename};
 use crate::{md5, sha256};
 use filetime::FileTime;
@@ -17,7 +17,6 @@ use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 use resvg::tiny_skia::Pixmap;
 use resvg::usvg::Tree;
-use serde_json;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Write;
@@ -79,15 +78,18 @@ pub fn resize_default(config: &Config) {
                 );
                 let source_path = source_binding.as_path();
                 let path = binding.as_path();
+                let resizable_image: ResizableImage = ResizableImage {
+                    source: source_path.to_path_buf(),
+                    destination: path.to_path_buf(),
+                    size: *size,
+                    alternate_names: Vec::default(),
+                    face_location: None,
+                };
                 resize_image(
-                    source_path,
-                    path,
-                    *size,
+                    resizable_image,
                     directory.as_path(),
-                    Vec::default(),
                     config.clone(),
                     &Square,
-                    None,
                 );
             });
         });
@@ -313,16 +315,14 @@ fn parallel_resize_image(
 
                     if needs_update(image, cache_path) {
                         log::debug!("resizing {} to {}", image.to_str().unwrap(), size);
-                        resize_image(
-                            image,
-                            cache_path,
-                            *size,
-                            size_path,
-                            alternate_names.clone(),
-                            config.clone(),
-                            format,
-                            face_data,
-                        );
+                        let resizable_image: ResizableImage = ResizableImage {
+                            source: image.to_path_buf(),
+                            destination: cache_path.to_path_buf(),
+                            size: *size,
+                            alternate_names: alternate_names.clone(),
+                            face_location: face_data,
+                        };
+                        resize_image(resizable_image, size_path, config.clone(), format);
                         return true;
                     }
                     false
@@ -347,6 +347,9 @@ pub fn create_links_for_image(
     source: &Path,
     alternate_names: Vec<String>,
 ) {
+    if !alternate_names.is_empty() {
+        return;
+    }
     if !Path::exists(directory) {
         create_directory(directory);
     }
@@ -365,7 +368,7 @@ pub fn create_links_for_image(
             );
             let result = fs::hard_link(source, link_path.as_path());
             if result.is_err() {
-                log::info!(
+                log::debug!(
                     "Could not create link {} to {}, copying instead",
                     source.to_str().unwrap(),
                     link_path.to_str().unwrap()
@@ -509,24 +512,21 @@ async fn async_watch<P: AsRef<Path>>(path: P, config: &Config) -> notify::Result
 }
 
 fn resize_image(
-    source: &Path,
-    destination: &Path,
-    size: u32,
+    resizable_image: ResizableImage,
     directory: &Path,
-    alternate_names: Vec<String>,
     config: Config,
     format: &Format,
-    face_location: Option<FaceLocation>,
 ) {
+    let source = resizable_image.source.as_path();
     if !Path::exists(source) {
         log::info!("source does not exist {}", source.to_str().unwrap());
         return;
     }
-    let mut path: &Path = source;
+    let mut path: &Path = resizable_image.source.as_path();
     let mut temp_file: Option<PathBuf> = None;
     if path.extension() == Some(OsStr::new("svg")) {
         log::debug!("found a svg file");
-        let word = random_word::gen(Lang::En);
+        let word = random_word::get(Lang::En);
         let binding = build_path(
             vec!["/tmp".to_string(), word.to_string()],
             Some("png".to_string()),
@@ -556,7 +556,7 @@ fn resize_image(
     };
 
     if format == &Format::Center && image.width() != image.height() {
-        if let Some(face) = face_location {
+        if let Some(face) = resizable_image.face_location {
             log::debug!(
                 "Found face in image {} at {:?}",
                 source.to_str().unwrap(),
@@ -588,29 +588,46 @@ fn resize_image(
     }
 
     if format == &Square || format == &Format::Center {
-        image = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);
+        image = image.resize_to_fill(
+            resizable_image.size,
+            resizable_image.size,
+            image::imageops::FilterType::Lanczos3,
+        );
     } else if format == &Portrait {
         image = image.crop(0, 0, image.width(), image.width());
-        image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
+        image = image.resize(
+            resizable_image.size,
+            resizable_image.size,
+            image::imageops::FilterType::Lanczos3,
+        );
     } else {
-        image = image.resize(size, size, image::imageops::FilterType::Lanczos3);
+        image = image.resize(
+            resizable_image.size,
+            resizable_image.size,
+            image::imageops::FilterType::Lanczos3,
+        );
     }
 
     let result = image.save_with_format(
-        destination,
+        resizable_image.destination.clone(),
         image::ImageFormat::from_extension(config.extension.clone()).unwrap(),
     );
     if result.is_err() {
         log::error!(
             "Could not resize image {} and store to {}",
             source.to_str().unwrap(),
-            destination.to_str().unwrap()
+            resizable_image.destination.as_path().to_str().unwrap()
         );
         return;
     }
-    if !alternate_names.is_empty() {
-        create_links_for_image(config.clone(), directory, destination, alternate_names);
-    }
+
+    create_links_for_image(
+        config.clone(),
+        directory,
+        resizable_image.destination.as_path(),
+        resizable_image.alternate_names,
+    );
+
     if let Some(temp_file) = temp_file {
         fs::remove_file(temp_file.as_path()).unwrap()
     }

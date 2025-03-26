@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FaceLocation {
@@ -70,4 +71,12 @@ pub struct ImageRequest {
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) config: Config,
+}
+
+pub struct ResizableImage {
+    pub(crate) source: PathBuf,
+    pub(crate) destination: PathBuf,
+    pub(crate) size: u32,
+    pub(crate) alternate_names: Vec<String>,
+    pub(crate) face_location: Option<FaceLocation>,
 }
