@@ -45,7 +45,7 @@ pub(crate) fn get_full_filename(path: &Path) -> String {
 }
 
 pub(crate) fn get_filename(path: &Path) -> Option<String> {
-    path.file_name()?.to_str().map(|s| s.to_string())
+    path.file_stem()?.to_str().map(|s| s.to_string())
 }
 
 pub(crate) fn build_path(parts: Vec<String>, extension: Option<String>) -> PathBuf {
