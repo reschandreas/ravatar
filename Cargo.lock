@@ -2187,9 +2187,9 @@ dependencies = [
 
 [[package]]
 name = "random_word"
-version = "0.4.3"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07eed67a16dde2cc3c7f65c072acd8d5b2e53d4aab95067c320db851c7651f29"
+checksum = "bcd87d2e3f99cc11e6c7fc518f09e63e194f7243b4cf30c979b0c524d04fbd90"
 dependencies = [
  "ahash",
  "brotli 3.5.0",
@@ -2236,10 +2236,9 @@ dependencies = [
 
 [[package]]
 name = "ravatar"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "actix-web",
- "anyhow",
  "dlib-face-recognition",
  "env_logger",
  "filetime",
