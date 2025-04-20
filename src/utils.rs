@@ -41,7 +41,7 @@ pub(crate) fn create_directory(path: &Path) {
 
 pub(crate) fn get_full_filename(path: &Path) -> String {
     let buffer = path.to_path_buf();
-    buffer.iter().last().unwrap().to_str().unwrap().to_string()
+    buffer.iter().next_back().unwrap().to_str().unwrap().to_string()
 }
 
 pub(crate) fn get_filename(path: &Path) -> Option<String> {

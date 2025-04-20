@@ -741,28 +741,24 @@ mod tests {
             scan_interval: 10,
             watch_directories: false,
         };
+        let mut hash_to_size = Vec::new();
+        
+        //hardcoded values to see if the resizing is consistent, need to be changed if images are changed
+        for format in [Center, Square, Portrait] {
+            hash_to_size.push((format, 1024, "285545e752f052f8170f91463719ab4f"));
+            hash_to_size.push((format, 512, "45056602872523e2a671274ef59e59b2"));
+            hash_to_size.push((format, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
+            hash_to_size.push((format, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
+            hash_to_size.push((format, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
+        }
+
+        //delete all the files
+        if fs::exists(config.images.clone()).expect("directory not found") {
+            fs::remove_dir_all(config.images.clone()).unwrap();
+        }
 
         resize_default(&config);
-        let mut hash_to_size = Vec::new();
-        //hardcoded values to see if the resizing is consistent, need to be changed if images are changed
-        hash_to_size.push((Center, 1024, "285545e752f052f8170f91463719ab4f"));
-        hash_to_size.push((Center, 512, "45056602872523e2a671274ef59e59b2"));
-        hash_to_size.push((Center, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
-        hash_to_size.push((Center, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
-        hash_to_size.push((Center, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
-
-        hash_to_size.push((Square, 1024, "285545e752f052f8170f91463719ab4f"));
-        hash_to_size.push((Square, 512, "45056602872523e2a671274ef59e59b2"));
-        hash_to_size.push((Square, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
-        hash_to_size.push((Square, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
-        hash_to_size.push((Square, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
-
-        hash_to_size.push((Portrait, 1024, "285545e752f052f8170f91463719ab4f"));
-        hash_to_size.push((Portrait, 512, "45056602872523e2a671274ef59e59b2"));
-        hash_to_size.push((Portrait, 256, "fdac5ef6eaaccb0b29d35b63ef1fa030"));
-        hash_to_size.push((Portrait, 128, "01875e1e8b71df4fe61984d8f7833eb2"));
-        hash_to_size.push((Portrait, 64, "30a09121e95111c0c2d1a19dd23c05dd"));
-
+        
         for (format, size, hash) in hash_to_size {
             let binding = build_path(
                 vec![
@@ -775,7 +771,7 @@ mod tests {
             );
             let path = binding.as_path();
             println!("checking {}", path.to_str().unwrap());
-            assert_eq!(path.exists(), true);
+            assert!(path.exists());
 
             use crate::utils::md5_of_content;
             assert_eq!(md5_of_content(path.to_str().unwrap()), hash);
@@ -788,13 +784,11 @@ mod tests {
     #[tokio::test]
     async fn test_lenna_resize() {
         let input_images =
-            PathBuf::from(["resources", "test", "images"].iter().collect::<PathBuf>());
-        let raw_images = PathBuf::from(["resources", "test", "raw"].iter().collect::<PathBuf>());
-        let converted_images = PathBuf::from(
-            ["resources", "test", "converted"]
+            ["resources", "test", "images"].iter().collect::<PathBuf>();
+        let raw_images = ["resources", "test", "raw"].iter().collect::<PathBuf>();
+        let converted_images = ["resources", "test", "converted"]
                 .iter()
-                .collect::<PathBuf>(),
-        );
+                .collect::<PathBuf>();
         if fs::exists(&converted_images).expect("REASON") {
             fs::remove_dir_all(&converted_images).unwrap();
         }
@@ -838,10 +832,10 @@ mod tests {
 
     #[cfg(test)]
     fn check_directories(path: &Path, config: &Config) {
-        let files = fs::read_dir(&path).unwrap();
+        let files = fs::read_dir(path).unwrap();
         // directories for each format should appear and a .locks directory, and the inventory file
         assert_eq!(files.count(), config.formats.len() + 2);
-        for directory in fs::read_dir(&path).unwrap().flatten() {
+        for directory in fs::read_dir(path).unwrap().flatten() {
             let directory_name = directory.file_name();
             let name = directory_name.to_str().unwrap();
             if name == ".locks" || name == "inventory.json" {
