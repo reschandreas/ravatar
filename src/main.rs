@@ -3,19 +3,20 @@ mod image_processor;
 mod ldap;
 mod structs;
 mod utils;
+mod io;
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use crate::config::{read_config, read_default, read_force_default, read_size};
 use crate::image_processor::{process_directory, resize_default, watch_directory};
 use crate::structs::{AppState, Config, Format, ImageRequest};
-use crate::utils::{build_path, md5, sha256};
+use crate::utils::{md5, path_exists, read_file, sha256};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use ldap3::tokio;
+use crate::io::build_path;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -29,10 +30,10 @@ async fn main() -> std::io::Result<()> {
     let cloned_config = state.config.clone();
     tokio::spawn(async move {
         loop {
-            log::debug!("starting periodic check");
+            log::info!("starting periodic check");
             let binding = cloned_config.raw.clone();
             let raw_path = Path::new(binding.as_str());
-            resize_default(&cloned_config);
+            resize_default(&cloned_config).await;
             process_directory(raw_path, &cloned_config).await;
             tokio::time::sleep(tokio::time::Duration::from_secs(
                 cloned_config.scan_interval * 60,
@@ -110,10 +111,11 @@ async fn avatar(
     };
     let mail_hash = path.into_inner().0;
     let config: Config = data.config.clone();
+    let cloned_config = config.clone();
     let cache_dir = config.images;
     let size: u16 = read_size(query.clone());
     let default: String = read_default(query.clone());
-    log::debug!("serving {mail_hash}, size {size}");
+    log::info!("serving {mail_hash}, size {size}");
     let mut path_parts = vec![cache_dir.clone()];
     let default_format = config.default_format;
     let mut format_to_serve = match query.format.clone() {
@@ -138,7 +140,7 @@ async fn avatar(
     path_parts.push(mail_hash.clone());
 
     let mut path = build_path(path_parts, Some(config.extension.clone()));
-    if !path.exists() || read_force_default(query) {
+    if !path_exists(&path, &cloned_config) || read_force_default(query) {
         log::info!("could not find {mail_hash}, size {size}, serving {default}");
         match default.as_str() {
             "404" => {
@@ -167,8 +169,9 @@ async fn avatar(
             }
         }
     }
-    if let Ok(image_content) = web::block(move || fs::read(path)).await {
-        match image_content {
+    let cloned_path = path.clone();
+    if let Ok(image_content) = web::block(move || read_file(cloned_path, cloned_config)).await {
+        match image_content.await {
             Ok(content) => HttpResponse::build(StatusCode::OK)
                 .content_type(format!("image/{}", config.extension))
                 .body(content),
@@ -183,6 +186,7 @@ async fn avatar(
 mod tests {
     use super::*;
     use actix_web::{test, App};
+    use crate::io::LocalStorage;
 
     #[actix_web::test]
     async fn test_healthz_get() {
@@ -213,6 +217,8 @@ mod tests {
                 sizes: vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
                 scan_interval: 10,
                 watch_directories: false,
+                storage_account_url: None,
+                storage_backend: Some(LocalStorage::default()),
             },
         };
         let app = test::init_service(

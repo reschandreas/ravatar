@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use crate::io::{LocalStorage, StorageBackend};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FaceLocation {
@@ -44,6 +45,8 @@ pub(crate) struct Config {
     pub sizes: Vec<u32>,
     pub watch_directories: bool,
     pub scan_interval: u64,
+    pub storage_account_url: Option<String>,
+    pub storage_backend: Option<LocalStorage>,
 }
 
 #[derive(Default, Clone, Debug)]

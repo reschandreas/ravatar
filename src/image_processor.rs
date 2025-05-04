@@ -1,11 +1,13 @@
+use crate::io::{build_path, get_filename, StorageBackend};
 use crate::ldap::get_attributes_with_filter;
 use crate::structs::Format::{Portrait, Square};
 use crate::structs::{Config, FaceLocation, Format, ResizableImage};
-use crate::utils::{build_path, create_directory, get_filename, get_full_filename};
+use crate::utils::{create_directory, get_full_filename, write_file};
 use crate::{md5, sha256};
 use filetime::FileTime;
 use futures::channel::mpsc::{channel, Receiver};
 use futures::executor::block_on;
+use futures::future::join_all;
 use futures::{SinkExt, StreamExt};
 use ldap3::tokio::time::{sleep, Duration};
 use notify::event::DataChange::Content;
@@ -19,92 +21,111 @@ use resvg::tiny_skia::Pixmap;
 use resvg::usvg::Tree;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufReader, Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::{fs, vec};
+use std::{fs, os, vec};
+use tempfile::{env, tempfile};
+use tokio::task;
 
-pub fn resize_default(config: &Config) {
-    create_directory(Path::new(&config.images));
+pub async fn resize_default(config: &Config) {
+    let storage_backend = config.storage_backend.clone().unwrap();
+    storage_backend
+        .create_directory(PathBuf::from(&config.images).as_path())
+        .expect("Could not create directory");
+
     let extension = config.mm_extension.clone();
-    let binding = build_path(
+
+    let default_path = build_path(
+        vec!["default".to_string(), "mm".to_string()],
+        Some(extension.clone()),
+    );
+
+    let target_path = build_path(
         vec![
             config.images.clone(),
-            config.default_format.as_str().parse().unwrap(),
+            config.default_format.as_str().to_string(),
             1024.to_string(),
             "mm".to_string(),
         ],
         Some(extension.clone()),
     );
-    let path = binding.as_path();
-    let binding = build_path(
-        vec!["default".to_string(), "mm".to_string()],
-        Some(extension.clone()),
-    );
-    let default = binding.as_path();
-    if !needs_update(default, path) {
-        log::debug!("skipping default");
+
+    if !storage_backend.needs_update(default_path.as_path(), target_path.as_path()) {
+        log::info!("skipping default");
         return;
     }
+
     let image_path = config.images.clone();
     for name in ["mm", "default"] {
-        let source_binding = build_path(
+        let source_path = build_path(
             vec!["default".to_string(), name.to_string()],
             Some(extension.clone()),
         );
-        if !source_binding.as_path().exists() {
-            log::warn!("source does not exist {}", source_binding.to_str().unwrap());
+
+        if !storage_backend.exists(source_path.as_path()) {
+            log::warn!("source does not exist {}", source_path.to_string_lossy());
             continue;
         }
-        config.sizes.par_iter().for_each(|size| {
-            config.formats.par_iter().for_each(|format| {
+
+        let formats = config.formats.clone();
+        let sizes = config.sizes.clone();
+
+        for size in sizes {
+            for format in formats.clone() {
                 let directory = build_path(
                     vec![
                         image_path.clone(),
-                        format.as_str().parse().unwrap(),
+                        format.as_str().to_string(),
                         size.to_string(),
                     ],
                     None,
                 );
-                create_directory(directory.as_path());
-                let binding = build_path(
+
+                storage_backend
+                    .create_directory(directory.as_path())
+                    .unwrap();
+
+                let destination_path = build_path(
                     vec![
                         image_path.clone(),
-                        format.as_str().parse().unwrap(),
+                        format.as_str().to_string(),
                         size.to_string(),
                         name.to_string(),
                     ],
                     Some(config.extension.clone()),
                 );
-                let source_path = source_binding.as_path();
-                let path = binding.as_path();
-                let resizable_image: ResizableImage = ResizableImage {
-                    source: source_path.to_path_buf(),
-                    destination: path.to_path_buf(),
-                    size: *size,
-                    alternate_names: Vec::default(),
+
+                let resizable_image = ResizableImage {
+                    source: source_path.as_path().to_path_buf(),
+                    destination: destination_path.as_path().to_path_buf(),
+                    size,
+                    alternate_names: Vec::new(),
                     face_location: None,
                 };
-                resize_image(
-                    resizable_image,
-                    directory.as_path(),
-                    config.clone(),
-                    &Square,
-                );
-            });
-        });
+
+                let c = config.clone();
+                task::spawn(async move {
+                    resize_image(resizable_image, directory.as_path(), c.clone(), &Square).await;
+                });
+            }
+        }
     }
 }
 
 pub async fn process_directory(directory: &Path, config: &Config) {
-    create_directory(directory);
+    let storage_backend = config.storage_backend.clone().unwrap();
+
+    storage_backend.create_directory(directory).unwrap();
+
     let inventory: Vec<String> = read_inventory(&config.clone());
     let mut handled_files: Vec<String> = Vec::new();
-    for path in fs::read_dir(directory).unwrap().flatten() {
+    for path in storage_backend.read_dir(directory).unwrap() {
         // we are only interested in files with extensions
-        if path.path().extension().is_some() {
-            process_image(&path.path(), config, false).await;
-            handled_files.push(get_filename(path.file_name().as_ref()).unwrap());
+        if path.extension().is_some() {
+            process_image(&path, config, false).await;
+            let filename = get_filename(path.as_path()).unwrap();
+            handled_files.push(filename);
         }
     }
     write_inventory(handled_files.clone(), config);
@@ -121,14 +142,20 @@ pub async fn process_directory(directory: &Path, config: &Config) {
 }
 
 pub fn read_inventory(config: &Config) -> Vec<String> {
+    let storage_backend = config.storage_backend.clone().unwrap();
     let target_directory = config.images.clone();
     let path = build_path(
         Vec::from([target_directory.to_string(), "inventory.json".to_string()]),
         None,
     );
     let lock = lock_image(path.as_path(), config.clone());
-    if lock.is_some() && fs::exists(path.as_path()).unwrap() {
-        let data = fs::read_to_string(path.clone()).expect("Unable to read file");
+    if lock.is_some() && storage_backend.exists(path.as_path()) {
+        let data = String::from_utf8(
+            storage_backend
+                .read(path.as_path())
+                .expect("Unable to read file"),
+        )
+        .unwrap();
         unlock_image(path.as_path(), config.clone(), lock.unwrap());
         let stuff: Vec<String> = serde_json::from_str(&data).expect("Unable to parse");
         return stuff;
@@ -137,6 +164,7 @@ pub fn read_inventory(config: &Config) -> Vec<String> {
 }
 
 pub fn write_inventory(files: Vec<String>, config: &Config) {
+    let storage_backend = config.storage_backend.clone().unwrap();
     let target_directory = config.images.clone();
     let path = build_path(
         Vec::from([target_directory.to_string(), "inventory.json".to_string()]),
@@ -145,22 +173,28 @@ pub fn write_inventory(files: Vec<String>, config: &Config) {
     let lock = lock_image(path.as_path(), config.clone());
     if lock.is_some() {
         let mut file = File::create(path.as_path()).expect("Failed to create or open the file");
-        file.set_len(0).unwrap();
-        file.write_all(serde_json::to_string(&files).unwrap().as_bytes())
-            .expect("Failed to write JSON to file");
+        storage_backend
+            .write(
+                path.as_path(),
+                serde_json::to_string(&files).unwrap().as_bytes(),
+            )
+            .expect("Failed to write empty file");
         unlock_image(path.as_path(), config.clone(), lock.unwrap());
     }
 }
 
 pub async fn process_image(path: &Path, config: &Config, force: bool) {
-    create_directory(Path::new(&config.images));
+    let storage_backend = config.storage_backend.clone().unwrap();
+    storage_backend
+        .create_directory(Path::new(&config.images))
+        .unwrap();
     if let Some(filename) = get_filename(path) {
         let binding = build_path(
             vec![config.images.to_string(), 1024.to_string(), filename],
             Some(config.extension.clone()),
         );
         let image_path = binding.as_path();
-        if !force && !needs_update(path, image_path) {
+        if !force && !storage_backend.needs_update(path, image_path) {
             log::debug!("skipping {}", path.to_str().unwrap());
             return;
         }
@@ -213,13 +247,16 @@ pub async fn evacuate_image(path: &Path, config: &Config) {
 }
 
 fn cleanup_image(config: &Config, path_prefix: PathBuf, names: Vec<String>) {
+    let storage_backend = config.storage_backend.clone().unwrap();
     for name in names {
         let link_path = build_path(
             vec![path_prefix.to_str().unwrap().to_string(), name],
             Some(config.extension.clone()),
         );
-        if link_path.as_path().exists() {
-            fs::remove_file(link_path).expect("Could not delete link");
+        if storage_backend.exists(link_path.as_path()) {
+            storage_backend
+                .delete(link_path.as_path())
+                .expect("Could not delete link");
         } else {
             log::info!("link not found {}", link_path.to_str().unwrap());
         }
@@ -241,6 +278,7 @@ async fn get_alternate_names_of(config: Config, filename: &str) -> Vec<String> {
 }
 
 pub async fn handle_image(source: &Path, config: &Config) {
+    let storage_backend = config.storage_backend.clone().unwrap();
     if let Some(lock) = lock_image(source, config.clone()) {
         let before = Instant::now();
         if let Some(filename) = get_filename(source) {
@@ -260,7 +298,7 @@ pub async fn handle_image(source: &Path, config: &Config) {
                     ],
                     Some(config.extension.clone()),
                 );
-                if needs_update(source, path.as_path()) {
+                if storage_backend.needs_update(source, path.as_path()) {
                     face_data = detect_face_in_image(source);
                     if face_data.is_none() {
                         log::info!("no face found in image {}", source.to_str().unwrap());
@@ -276,13 +314,14 @@ pub async fn handle_image(source: &Path, config: &Config) {
                 config.clone(),
                 face_data,
                 alternate_names.clone(),
-            );
+            )
+            .await;
         }
         unlock_image(source, config.clone(), lock);
     }
 }
 
-fn parallel_resize_image(
+async fn parallel_resize_image(
     before: Instant,
     filename: String,
     image: &Path,
@@ -291,50 +330,71 @@ fn parallel_resize_image(
     face_data: Option<FaceLocation>,
     alternate_names: Vec<String>,
 ) -> bool {
-    let was_resized: Vec<bool> = config
-        .sizes
-        .par_iter()
+    let sizes = config.sizes.clone();
+    let formats = config.formats.clone();
+    let was_resized: Vec<_> = sizes
+        .into_iter()
         .map(|size| {
-            let was_resized_format: Vec<bool> = config
-                .formats
-                .par_iter()
-                .map(|format| {
-                    let mut path = vec![
-                        config.images.clone(),
-                        format.as_str().to_string(),
-                        size.to_string(),
-                    ];
-                    let binding = build_path(path.clone(), None);
-                    let size_path = binding.as_path();
-                    create_directory(size_path);
+            let config = config.clone();
+            let image = image.to_path_buf();
+            let md5_hash = md5_hash.clone();
+            let alternate_names = alternate_names.clone();
+            let f = formats.clone();
 
-                    path.push(md5_hash.clone());
-                    let binding = build_path(path, Some(config.extension.clone()));
+            task::spawn(async move {
+                let was_resized_format: Vec<_> = f
+                    .into_iter()
+                    .map(|format| {
+                        let config = config.clone();
+                        let image = image.clone();
+                        let md5_hash = md5_hash.clone();
+                        let alternate_names = alternate_names.clone();
+                        let face_data = face_data.clone();
 
-                    let cache_path = binding.as_path();
+                        task::spawn(async move {
+                            let storage_backend = config.storage_backend.clone().unwrap();
+                            let mut path = vec![
+                                config.images.clone(),
+                                format.as_str().to_string(),
+                                size.to_string(),
+                            ];
+                            let binding = build_path(path.clone(), None);
+                            let size_path = binding.as_path();
+                            storage_backend
+                                .create_directory(size_path)
+                                .expect("Could not create directory");
 
-                    if needs_update(image, cache_path) {
-                        log::debug!("resizing {} to {}", image.to_str().unwrap(), size);
-                        let resizable_image: ResizableImage = ResizableImage {
-                            source: image.to_path_buf(),
-                            destination: cache_path.to_path_buf(),
-                            size: *size,
-                            alternate_names: alternate_names.clone(),
-                            face_location: face_data,
-                        };
-                        resize_image(resizable_image, size_path, config.clone(), format);
-                        return true;
-                    }
-                    false
-                })
-                .collect();
-            if was_resized_format.iter().any(|x| *x) {
-                return true;
-            }
-            false
+                            path.push(md5_hash.clone());
+                            let binding = build_path(path, Some(config.extension.clone()));
+
+                            let cache_path = binding.as_path();
+
+                            if storage_backend.needs_update(&image, cache_path) {
+                                log::debug!("resizing {} to {}", image.to_str().unwrap(), size);
+                                let resizable_image = ResizableImage {
+                                    source: image.clone(),
+                                    destination: cache_path.to_path_buf(),
+                                    size,
+                                    alternate_names: alternate_names.clone(),
+                                    face_location: face_data,
+                                };
+                                resize_image(resizable_image, size_path, config.clone(), &format)
+                                    .await;
+                                return true;
+                            }
+                            false
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                let results = join_all(was_resized_format).await;
+                results.into_iter().any(|x| x.expect("Failed to join task"))
+            })
         })
-        .collect();
-    if was_resized.iter().any(|x| *x) {
+        .collect::<Vec<_>>();
+
+    let results = join_all(was_resized).await;
+    if results.into_iter().any(|x| x.expect("Failed to join task")) {
         log::info!("resized {} in {:?}", filename, before.elapsed());
         return true;
     }
@@ -350,36 +410,44 @@ pub fn create_links_for_image(
     if !alternate_names.is_empty() {
         return;
     }
-    if !Path::exists(directory) {
-        create_directory(directory);
+    let storage_backend = config.storage_backend.clone().unwrap();
+    if !storage_backend.exists(directory) {
+        storage_backend
+            .create_directory(directory)
+            .expect("Could not create directory");
     }
     for name in alternate_names {
         let target_directory = build_path(vec![directory.to_str().unwrap().parse().unwrap()], None);
-        create_directory(target_directory.as_path());
+        storage_backend
+            .create_directory(target_directory.as_path())
+            .expect("Could not create directory");
         let link_path = build_path(
             vec![directory.to_str().unwrap().parse().unwrap(), name],
             Some(config.extension.clone()),
         );
-        if !link_path.as_path().exists() {
+        if !storage_backend.exists(link_path.as_path()) {
             log::debug!(
                 "linking {} to {}",
                 source.to_str().unwrap(),
                 link_path.to_str().unwrap()
             );
-            let result = fs::hard_link(source, link_path.as_path());
+            let result = storage_backend.hard_link(source, link_path.as_path());
             if result.is_err() {
                 log::debug!(
                     "Could not create link {} to {}, copying instead",
                     source.to_str().unwrap(),
                     link_path.to_str().unwrap()
                 );
-                fs::copy(source, link_path.as_path()).expect("Could not copy file");
+                storage_backend
+                    .copy(source, link_path.as_path())
+                    .expect("Could not copy file");
             }
         }
     }
 }
 
 fn lock_image(path: &Path, config: Config) -> Option<String> {
+    let storage_backend = config.storage_backend.clone().unwrap();
     if let Some(filename) = get_filename(path) {
         let md5_hash = md5(&filename);
         create_directory(
@@ -394,14 +462,17 @@ fn lock_image(path: &Path, config: Config) -> Option<String> {
             Some("lock".to_string()),
         );
         log::debug!("locking {}", path.to_str()?);
-        if !lock_path.as_path().exists() {
+
+        if !storage_backend.exists(lock_path.as_path()) {
             let content = random::<u64>().to_string();
-            fs::write(lock_path, content.clone()).expect("Could not write lock file");
+            storage_backend
+                .write(lock_path.as_path(), content.as_bytes())
+                .expect("Could not write lock file");
             log::debug!("locked {}", path.to_str().unwrap());
             Some(content)
         } else {
             log::warn!("Could not lock {}, already locked", path.to_str()?);
-            release_if_old_lock(lock_path.as_path());
+            release_if_old_lock(lock_path.as_path(), &config);
             lock_image(path, config)
         }
     } else {
@@ -410,6 +481,7 @@ fn lock_image(path: &Path, config: Config) -> Option<String> {
 }
 
 fn unlock_image(path: &Path, config: Config, content: String) {
+    let storage_backend = config.storage_backend.clone().unwrap();
     if let Some(filename) = get_filename(path) {
         let md5_hash = md5(&filename);
         let lock_path = build_path(
@@ -420,105 +492,61 @@ fn unlock_image(path: &Path, config: Config, content: String) {
             ],
             Some("lock".to_string()),
         );
-        if lock_path.as_path().exists() {
-            let file_content =
-                fs::read_to_string(lock_path.clone()).expect("Could not read lock file");
+        if storage_backend.exists(lock_path.as_path()) {
+            let file_content = String::from_utf8(
+                storage_backend
+                    .read(lock_path.as_path())
+                    .expect("Could not read lock file"),
+            )
+            .unwrap();
             if file_content == content {
-                fs::remove_file(lock_path).expect("Could not delete lock file");
+                storage_backend
+                    .delete(lock_path.as_path())
+                    .expect("Could not delete lock file");
             } else {
                 log::warn!("Could not unlock {}, not my lock", path.to_str().unwrap());
-                release_if_old_lock(lock_path.as_path());
+                release_if_old_lock(lock_path.as_path(), &config);
             }
         }
     }
 }
 
-fn release_if_old_lock(path: &Path) {
-    let metadata = fs::metadata(path).unwrap();
-    let raw_mtime = FileTime::from_last_modification_time(&metadata);
+fn release_if_old_lock(path: &Path, config: &Config) {
+    let storage_backend = config.storage_backend.clone().unwrap();
+    let raw_mtime = storage_backend.last_modified(path).unwrap();
     if raw_mtime.seconds() > 60 {
-        fs::remove_file(path).unwrap()
+        storage_backend
+            .delete(path)
+            .expect("Could not delete lock file");
     }
 }
 
-fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
-    let (mut tx, rx) = channel(1);
-
-    let watcher = RecommendedWatcher::new(
-        move |res| {
-            block_on(async {
-                tx.send(res).await.unwrap();
-            })
-        },
-        notify::Config::default(),
-    )?;
-
-    Ok((watcher, rx))
-}
-
 pub(crate) async fn watch_directory(path: String, config: &Config) {
+    let storage_backend = config.clone().storage_backend.unwrap();
     log::info!("watching {}", path);
 
     let path = Path::new(&path);
 
-    if !path.exists() {
-        create_directory(path);
+    if !storage_backend.exists(path) {
+        storage_backend
+            .create_directory(path)
+            .expect("Could not create directory");
     }
 
-    if let Err(e) = async_watch(path, config).await {
+    if let Err(e) = storage_backend.async_watch(path, config).await {
         log::error!("error: {:?}", e);
     }
 }
 
-async fn async_watch<P: AsRef<Path>>(path: P, config: &Config) -> notify::Result<()> {
-    let (mut watcher, mut rx) = async_watcher()?;
-
-    watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
-
-    while let Some(res) = rx.next().await {
-        // wait a bit, to avoid being to eager
-        sleep(Duration::from_millis(200 + random::<u64>() % 500)).await;
-        match res {
-            Ok(event) => match event.kind {
-                notify::EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => {
-                    log::info!("a file was renamed");
-                    if !path.as_ref().exists() {
-                        evacuate_image(&event.paths[0], config).await;
-                    } else {
-                        process_image(&event.paths[0], config, false).await;
-                    }
-                }
-                notify::EventKind::Create(_) => {
-                    log::info!("found a new file");
-                    process_image(&event.paths[0], config, false).await;
-                }
-                notify::EventKind::Modify(ModifyKind::Data(Content)) => {
-                    log::info!("a file was updated");
-                    update_image(&event.paths[0], config).await;
-                }
-                notify::EventKind::Remove(_) => {
-                    log::info!("a file was removed");
-                    evacuate_image(&event.paths[0], config).await;
-                }
-                _ => {
-                    log::debug!("unhandled event: {:?}", event);
-                }
-            },
-            Err(e) => log::error!("watch error: {:?}", e),
-        }
-    }
-
-    Ok(())
-}
-
-fn resize_image(
+async fn resize_image(
     resizable_image: ResizableImage,
     directory: &Path,
     config: Config,
     format: &Format,
 ) {
+    let storage_backend = config.storage_backend.clone().unwrap();
     let source = resizable_image.source.as_path();
-    if !Path::exists(source) {
+    if !storage_backend.exists(source) {
         log::info!("source does not exist {}", source.to_str().unwrap());
         return;
     }
@@ -528,22 +556,28 @@ fn resize_image(
         log::debug!("found a svg file");
         let word = random_word::get(Lang::En);
         let binding = build_path(
-            vec!["/tmp".to_string(), word.to_string()],
+            vec![
+                env::temp_dir().to_str().unwrap().parse().unwrap(),
+                word.to_string(),
+            ],
             Some("png".to_string()),
         );
         temp_file = Some(binding.as_path().to_path_buf());
-        svg_to_png(source.to_str().unwrap(), binding.to_str().unwrap());
+        svg_to_png(
+            source.to_str().unwrap(),
+            binding.to_str().unwrap(),
+            config.clone(),
+        );
         path = temp_file.as_ref().unwrap().as_path();
         log::debug!("converted svg to png so we can resize it");
     }
-    log::debug!("resizing {}", source.to_str().unwrap());
-    let image_res = image::ImageReader::open(path);
-    if image_res.is_err() {
-        log::error!("Could not open image {}", source.to_str().unwrap());
-        return;
-    }
+    log::info!("resizing {}", source.to_str().unwrap());
+    let content = storage_backend.read(path).expect("Could not read source");
+    let image_res = image::ImageReader::new(BufReader::new(Cursor::new(content)))
+        .with_guessed_format()
+        .unwrap();
 
-    let mut image = match image_res.unwrap().decode() {
+    let mut image = match image_res.decode() {
         Ok(image) => image,
         Err(err) => {
             log::error!(
@@ -629,7 +663,9 @@ fn resize_image(
     );
 
     if let Some(temp_file) = temp_file {
-        fs::remove_file(temp_file.as_path()).unwrap()
+        storage_backend
+            .delete(temp_file.as_path())
+            .expect("Could not delete file");
     }
 }
 
@@ -667,28 +703,13 @@ fn detect_face_in_image(_source: &Path) -> Option<FaceLocation> {
     None
 }
 
-fn needs_update(raw: &Path, processed: &Path) -> bool {
-    let filename = get_full_filename(raw);
-    if filename.starts_with('.') {
-        return false;
-    }
-
-    if !Path::new(&processed).exists() || !Path::new(raw).exists() {
-        return true;
-    }
-
-    let raw_metadata = fs::metadata(raw).unwrap();
-    let raw_mtime = FileTime::from_last_modification_time(&raw_metadata);
-
-    let processed_metadata = fs::metadata(processed).unwrap();
-    let processed_mtime = FileTime::from_last_modification_time(&processed_metadata);
-    raw_mtime > processed_mtime
-}
-
-fn svg_to_png(source: &str, output_path: &str) {
+fn svg_to_png(source: &str, output_path: &str, config: Config) {
+    let storage_backend = config.storage_backend.clone().unwrap();
     // Parse SVG data into a tree
     let opt = resvg::usvg::Options::default();
-    let content = fs::read(source).unwrap();
+    let content = storage_backend
+        .read(PathBuf::from(source).as_path())
+        .expect("Could not read source");
     if let Ok(rtree) = Tree::from_data(&content, &opt) {
         // Set up the render target
         if let Some(mut pixmap) =
@@ -702,8 +723,14 @@ fn svg_to_png(source: &str, output_path: &str) {
             );
 
             // Save the output as PNG
-            log::debug!("Svg to {}.", output_path);
-            pixmap.save_png(output_path).unwrap();
+            log::info!("Svg to {}.", output_path);
+            let file = tempfile::NamedTempFile::new().unwrap();
+            pixmap.save_png(file.path()).unwrap();
+            let content = storage_backend.read(file.path()).unwrap();
+            storage_backend
+                .write(PathBuf::from(output_path).as_path(), &content)
+                .expect("Could not write file");
+            fs::remove_file(file.path()).unwrap();
         } else {
             log::error!("Failed to create pixmap");
         }
@@ -722,6 +749,7 @@ mod tests {
     use std::fs;
     #[allow(unused_imports)]
     use std::path::{Path, PathBuf};
+    use crate::io::LocalStorage;
 
     #[test]
     fn test_resize_default() {
@@ -740,9 +768,11 @@ mod tests {
             log_level: "".to_string(),
             scan_interval: 10,
             watch_directories: false,
+            storage_account_url: None,
+            storage_backend: Some(LocalStorage::default()),
         };
         let mut hash_to_size = Vec::new();
-        
+
         //hardcoded values to see if the resizing is consistent, need to be changed if images are changed
         for format in [Center, Square, Portrait] {
             hash_to_size.push((format, 1024, "285545e752f052f8170f91463719ab4f"));
@@ -757,8 +787,8 @@ mod tests {
             fs::remove_dir_all(config.images.clone()).unwrap();
         }
 
-        resize_default(&config);
-        
+        resize_default(&config).await;
+
         for (format, size, hash) in hash_to_size {
             let binding = build_path(
                 vec![
@@ -783,12 +813,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_lenna_resize() {
-        let input_images =
-            ["resources", "test", "images"].iter().collect::<PathBuf>();
+        let input_images = ["resources", "test", "images"].iter().collect::<PathBuf>();
         let raw_images = ["resources", "test", "raw"].iter().collect::<PathBuf>();
         let converted_images = ["resources", "test", "converted"]
-                .iter()
-                .collect::<PathBuf>();
+            .iter()
+            .collect::<PathBuf>();
         if fs::exists(&converted_images).expect("REASON") {
             fs::remove_dir_all(&converted_images).unwrap();
         }
@@ -808,6 +837,8 @@ mod tests {
             log_level: "".to_string(),
             watch_directories: true,
             scan_interval: 10,
+            storage_account_url: None,
+            storage_backend: None,
         };
 
         let mut path = raw_images.join("lenna.png");

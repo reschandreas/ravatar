@@ -1,6 +1,7 @@
 use crate::structs::{Config, Format, ImageRequest, LdapConfig};
 use std::cmp::PartialEq;
 use std::env;
+use crate::io::LocalStorage;
 
 impl PartialEq for Format {
     fn eq(&self, other: &Self) -> bool {
@@ -21,10 +22,12 @@ pub(crate) fn read_config() -> Config {
     let port: u16 = env::var("PORT").unwrap_or("8080".into()).parse().unwrap();
     let log_level = env::var("LOG_LEVEL").unwrap_or("info".into());
     let scan_interval = env::var("SCAN_INTERVAL").unwrap_or("60".into()).parse().unwrap();
+    let storage_account_url = env::var("STORAGE_ACCOUNT_URL").ok();
     let watch_directories: bool = env::var("WATCH_DIRECTORIES")
         .unwrap_or("true".into())
         .parse()
-        .unwrap();
+        .unwrap() && storage_account_url.is_none();
+    
     let mut formats: Vec<Format> = vec![Format::Square];
     let offer_original_dimensions: bool = env::var("OFFER_ORIGINAL_DIMENSIONS")
         .unwrap_or("false".into())
@@ -107,7 +110,9 @@ pub(crate) fn read_config() -> Config {
         formats,
         sizes: vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
         watch_directories,
-        scan_interval
+        scan_interval,
+        storage_account_url,
+        storage_backend: Some(LocalStorage::default()),
     }
 }
 
