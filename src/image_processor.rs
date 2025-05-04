@@ -2,17 +2,11 @@ use crate::io::{build_path, get_filename, StorageBackend};
 use crate::ldap::get_attributes_with_filter;
 use crate::structs::Format::{Portrait, Square};
 use crate::structs::{Config, FaceLocation, Format, ResizableImage};
-use crate::utils::{create_directory, get_full_filename, write_file};
+use crate::utils::{create_directory, get_full_filename};
 use crate::{md5, sha256};
-use filetime::FileTime;
-use futures::channel::mpsc::{channel, Receiver};
-use futures::executor::block_on;
 use futures::future::join_all;
-use futures::{SinkExt, StreamExt};
-use ldap3::tokio::time::{sleep, Duration};
-use notify::event::DataChange::Content;
-use notify::event::{ModifyKind, RenameMode};
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use futures::StreamExt;
+use notify::Watcher;
 use rand::random;
 use random_word::Lang;
 use rayon::iter::IntoParallelRefIterator;
@@ -24,8 +18,8 @@ use std::fs::File;
 use std::io::{BufReader, Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::{fs, os, vec};
-use tempfile::{env, tempfile};
+use std::{fs, vec};
+use tempfile::env;
 use tokio::task;
 
 pub async fn resize_default(config: &Config) {
@@ -172,7 +166,7 @@ pub fn write_inventory(files: Vec<String>, config: &Config) {
     );
     let lock = lock_image(path.as_path(), config.clone());
     if lock.is_some() {
-        let mut file = File::create(path.as_path()).expect("Failed to create or open the file");
+        let file = File::create(path.as_path()).expect("Failed to create or open the file");
         storage_backend
             .write(
                 path.as_path(),
@@ -349,7 +343,7 @@ async fn parallel_resize_image(
                         let image = image.clone();
                         let md5_hash = md5_hash.clone();
                         let alternate_names = alternate_names.clone();
-                        let face_data = face_data.clone();
+                        let face_data = face_data;
 
                         task::spawn(async move {
                             let storage_backend = config.storage_backend.clone().unwrap();
@@ -749,7 +743,7 @@ mod tests {
     use std::fs;
     #[allow(unused_imports)]
     use std::path::{Path, PathBuf};
-    use crate::io::LocalStorage;
+    
 
     #[test]
     fn test_resize_default() {

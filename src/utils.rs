@@ -80,27 +80,19 @@ fn create_blob_client(storage_account_url: &str, container: &str, blob_path: &st
 }
 
 pub(crate) fn create_source_blob_container_client(config: &Config) -> Option<BlobContainerClient> {
-    if let Some(storage_account_url) = &config.storage_account_url {
-        Some(create_blob_container_client(
+    config.storage_account_url.as_ref().map(|storage_account_url| create_blob_container_client(
             storage_account_url,
             &config.raw,
         ))
-    } else {
-        None
-    }
 }
 
 pub(crate) fn create_destination_blob_container_client(
     config: &Config,
 ) -> Option<BlobContainerClient> {
-    if let Some(storage_account_url) = &config.storage_account_url {
-        Some(create_blob_container_client(
+    config.storage_account_url.as_ref().map(|storage_account_url| create_blob_container_client(
             storage_account_url,
             &config.images,
         ))
-    } else {
-        None
-    }
 }
 
 /**

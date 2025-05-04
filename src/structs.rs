@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use crate::io::{LocalStorage, StorageBackend};
+use crate::io::LocalStorage;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FaceLocation {
