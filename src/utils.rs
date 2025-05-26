@@ -1,13 +1,7 @@
-use crate::structs::Config;
-use azure_core::http::RequestContent;
-use azure_identity::DefaultAzureCredential;
-use azure_storage_blob::{
-    BlobClient, BlobClientOptions, BlobContainerClient, BlobContainerClientOptions,
-};
 use md5::Md5;
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(crate) fn sha256(filename: &str) -> String {
     Sha256::digest(filename.as_bytes())
@@ -56,106 +50,9 @@ pub(crate) fn get_full_filename(path: &Path) -> String {
         .to_string()
 }
 
-fn create_blob_container_client(storage_account_url: &str, container: &str) -> BlobContainerClient {
-    let credential = DefaultAzureCredential::new().unwrap();
-    BlobContainerClient::new(
-        storage_account_url,
-        container.to_string(),
-        credential,
-        Some(BlobContainerClientOptions::default()),
-    )
-    .unwrap()
-}
-
-fn create_blob_client(storage_account_url: &str, container: &str, blob_path: &str) -> BlobClient {
-    let credential = DefaultAzureCredential::new().unwrap();
-    BlobClient::new(
-        storage_account_url,
-        container.to_string(),
-        blob_path.to_string(),
-        credential,
-        Some(BlobClientOptions::default()),
-    )
-    .unwrap()
-}
-
-pub(crate) fn create_source_blob_container_client(config: &Config) -> Option<BlobContainerClient> {
-    config.storage_account_url.as_ref().map(|storage_account_url| create_blob_container_client(
-            storage_account_url,
-            &config.raw,
-        ))
-}
-
-pub(crate) fn create_destination_blob_container_client(
-    config: &Config,
-) -> Option<BlobContainerClient> {
-    config.storage_account_url.as_ref().map(|storage_account_url| create_blob_container_client(
-            storage_account_url,
-            &config.images,
-        ))
-}
-
-/**
- * Check if a path exists locally or in Azure Blob Storage.
- */
-
-pub(crate) fn path_exists(path: &Path, config: &Config) -> bool {
-    if let Some(storage_account_url) = &config.storage_account_url {
-        let container = match path.starts_with(&config.images) {
-            true => &config.images,
-            false => &config.raw,
-        };
-        let blob_name = path.to_str().unwrap();
-        let _blob_client = create_blob_client(storage_account_url, container, blob_name);
-    }
-    path.exists()
-}
-
-pub(crate) async fn write_file(path: &Path, content: &[u8], config: &Config) {
-    if let Some(storage_account_url) = &config.storage_account_url {
-        let container = match path.starts_with(&config.images) {
-            true => &config.images,
-            false => &config.raw,
-        };
-        let blob_name = path.to_str().unwrap();
-        let blob_client = create_blob_client(storage_account_url, container, blob_name);
-        blob_client
-            .upload(
-                RequestContent::from(content.to_vec()),
-                true,
-                content.len().try_into().unwrap(),
-                None,
-            )
-            .await
-            .expect("Could not upload file");
-    } else {
-        fs::write(path, content).expect("Could not write file");
-    }
-}
-
-pub(crate) async fn read_file(path: PathBuf, config: Config) -> Result<Vec<u8>, std::io::Error> {
-    if let Some(storage_account_url) = &config.storage_account_url {
-        let container = match path.starts_with(&config.images) {
-            true => &config.images,
-            false => &config.raw,
-        };
-        let blob_name = path.to_str().unwrap();
-        let blob_client = create_blob_client(storage_account_url, container, blob_name);
-        let response = blob_client.download(None).await;
-        if let Ok(response) = response {
-            return Ok(response.into_raw_body().collect().await.unwrap().to_vec());
-        }
-    } else if path.exists() {
-        return fs::read(path);
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        "File not found",
-    ))
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use crate::io::build_path;
     use super::*;
     #[test]

@@ -11,12 +11,12 @@ use std::path::Path;
 use crate::config::{read_config, read_default, read_force_default, read_size};
 use crate::image_processor::{process_directory, resize_default, watch_directory};
 use crate::structs::{AppState, Config, Format, ImageRequest};
-use crate::utils::{md5, path_exists, read_file, sha256};
+use crate::utils::{md5, sha256};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use ldap3::tokio;
-use crate::io::build_path;
+use crate::io::{build_path, StorageBackend};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -36,7 +36,7 @@ async fn main() -> std::io::Result<()> {
             resize_default(&cloned_config).await;
             process_directory(raw_path, &cloned_config).await;
             tokio::time::sleep(tokio::time::Duration::from_secs(
-                cloned_config.scan_interval * 60,
+                cloned_config.scan_interval,
             ))
             .await;
         }
@@ -111,7 +111,7 @@ async fn avatar(
     };
     let mail_hash = path.into_inner().0;
     let config: Config = data.config.clone();
-    let cloned_config = config.clone();
+
     let cache_dir = config.images;
     let size: u16 = read_size(query.clone());
     let default: String = read_default(query.clone());
@@ -140,7 +140,9 @@ async fn avatar(
     path_parts.push(mail_hash.clone());
 
     let mut path = build_path(path_parts, Some(config.extension.clone()));
-    if !path_exists(&path, &cloned_config) || read_force_default(query) {
+
+    let storage_backend = config.storage_backend.clone().unwrap();
+    if !storage_backend.exists(&path).await || read_force_default(query) {
         log::info!("could not find {mail_hash}, size {size}, serving {default}");
         match default.as_str() {
             "404" => {
@@ -170,7 +172,8 @@ async fn avatar(
         }
     }
     let cloned_path = path.clone();
-    if let Ok(image_content) = web::block(move || read_file(cloned_path, cloned_config)).await {
+    let storage_backend = config.storage_backend.clone().unwrap();
+    if let Ok(image_content) = web::block(async move || storage_backend.read(cloned_path.as_path()).await).await {
         match image_content.await {
             Ok(content) => HttpResponse::build(StatusCode::OK)
                 .content_type(format!("image/{}", config.extension))
@@ -186,7 +189,7 @@ async fn avatar(
 mod tests {
     use super::*;
     use actix_web::{test, App};
-    use crate::io::LocalStorage;
+    use crate::io::{LocalStorage, StorageBackendType};
 
     #[actix_web::test]
     async fn test_healthz_get() {
@@ -217,8 +220,7 @@ mod tests {
                 sizes: vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
                 scan_interval: 10,
                 watch_directories: false,
-                storage_account_url: None,
-                storage_backend: Some(LocalStorage::default()),
+                storage_backend: Some(StorageBackendType::Local(LocalStorage::default())),
             },
         };
         let app = test::init_service(

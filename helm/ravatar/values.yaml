@@ -18,6 +18,7 @@ ravatar:
   offerFaceCenteredImage: false
   offerPortraitImage: false
   watchDirectories: true
+  storageAccountUrl: ""
   scanInterval: 60
   ldap:
     enabled: false

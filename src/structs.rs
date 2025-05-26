@@ -1,6 +1,6 @@
+use crate::io::StorageBackendType;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use crate::io::LocalStorage;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FaceLocation {
@@ -45,8 +45,7 @@ pub(crate) struct Config {
     pub sizes: Vec<u32>,
     pub watch_directories: bool,
     pub scan_interval: u64,
-    pub storage_account_url: Option<String>,
-    pub storage_backend: Option<LocalStorage>,
+    pub storage_backend: Option<StorageBackendType>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -82,4 +81,72 @@ pub struct ResizableImage {
     pub(crate) size: u32,
     pub(crate) alternate_names: Vec<String>,
     pub(crate) face_location: Option<FaceLocation>,
+}
+
+
+// used for list blobs
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct EnumerationResults {
+    #[serde(rename = "@ServiceEndpoint")]
+    service_endpoint: String,
+    #[serde(rename = "@ContainerName")]
+    container_name: String,
+    prefix: Option<String>,
+    pub(crate) blobs: Option<Blobs>,
+    next_marker: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Blobs {
+    #[serde(rename = "Blob")]
+    pub(crate) blob: Option<Vec<Blob>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Blob {
+    #[serde(rename = "Name")]
+    pub(crate) name: String,
+    #[serde(rename = "Properties")]
+    properties: Properties,
+    #[serde(rename = "OrMetadata")]
+    or_metadata: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Properties {
+    #[serde(rename = "Creation-Time")]
+    creation_time: Option<String>,
+    #[serde(rename = "Last-Modified")]
+    last_modified: Option<String>,
+    etag: Option<String>,
+    #[serde(rename = "Content-Length")]
+    content_length: Option<u64>,
+    #[serde(rename = "Content-Type")]
+    content_type: Option<String>,
+    #[serde(rename = "Content-Encoding")]
+    content_encoding: Option<String>,
+    #[serde(rename = "Content-Language")]
+    content_language: Option<String>,
+    #[serde(rename = "Content-CRC64")]
+    content_crc64: Option<String>,
+    #[serde(rename = "Content-MD5")]
+    content_md5: Option<String>,
+    #[serde(rename = "Cache-Control")]
+    cache_control: Option<String>,
+    #[serde(rename = "Content-Disposition")]
+    content_disposition: Option<String>,
+    #[serde(rename = "BlobType")]
+    blob_type: Option<String>,
+    #[serde(rename = "AccessTier")]
+    access_tier: Option<String>,
+    #[serde(rename = "AccessTierInferred")]
+    access_tier_inferred: Option<bool>,
+    #[serde(rename = "LeaseStatus")]
+    lease_status: Option<String>,
+    #[serde(rename = "LeaseState")]
+    lease_state: Option<String>,
+    #[serde(rename = "ServerEncrypted")]
+    server_encrypted: Option<bool>,
 }
