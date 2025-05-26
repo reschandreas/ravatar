@@ -1,7 +1,8 @@
 use crate::structs::{Config, Format, ImageRequest, LdapConfig};
 use std::cmp::PartialEq;
 use std::env;
-use crate::io::LocalStorage;
+use crate::io::{AzureBlobStorage, LocalStorage, StorageBackendType};
+use crate::io::StorageBackendType::{AzureBlob, Local};
 
 impl PartialEq for Format {
     fn eq(&self, other: &Self) -> bool {
@@ -14,8 +15,8 @@ impl PartialEq for Format {
  */
 pub(crate) fn read_config() -> Config {
     let prefix: String = env::var("PATH_PREFIX").unwrap_or("/avatar".into());
-    let raw = env::var("RAW_PATH").unwrap_or("./raw".into());
-    let images = env::var("IMAGES_PATH").unwrap_or("./images".into());
+    let mut raw = env::var("RAW_PATH").unwrap_or("./raw".into());
+    let mut images = env::var("IMAGES_PATH").unwrap_or("./images".into());
     let extension = env::var("EXTENSION").unwrap_or("png".into());
     let mm_extension = env::var("MM_EXTENSION").unwrap_or("png".into());
     let host = env::var("HOST").unwrap_or("0.0.0.0".into());
@@ -59,6 +60,14 @@ pub(crate) fn read_config() -> Config {
     }
     if offer_original_dimensions || default_format == Format::Original {
         formats.push(Format::Original);
+    }
+    
+    let mut storage_backend : StorageBackendType = Local(LocalStorage::default());
+    if let Some(storage_account_url) = &storage_account_url {
+        log::info!("Using Azure Blob Storage as backend");
+        images = images.trim_start_matches("./").to_string();
+        raw = raw.trim_start_matches("./").to_string();
+        storage_backend = AzureBlob(AzureBlobStorage::new(storage_account_url.to_string(), raw.clone(), images.clone()));
     }
 
     if default_format == Format::Square {
@@ -111,8 +120,7 @@ pub(crate) fn read_config() -> Config {
         sizes: vec![16, 24, 32, 48, 64, 80, 96, 128, 256, 512, 1024],
         watch_directories,
         scan_interval,
-        storage_account_url,
-        storage_backend: Some(LocalStorage::default()),
+        storage_backend: Some(storage_backend),
     }
 }
 

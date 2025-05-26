@@ -1,6 +1,6 @@
 [package]
 name = "ravatar"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,28 +8,31 @@ edition = "2021"
 [dependencies]
 md-5 = "0.10.6"
 notify = "8.0.0"
-sha2 = "0.10.8"
+sha2 = "0.10.9"
 futures = "0.3.31"
-image = "0.25.5"
+image = "0.25.6"
 filetime = "0.2.25"
-actix-web = "4.9.0"
-serde = { version = "1.0.217", features = ["derive"] }
-env_logger = "0.11.6"
+actix-web = "4.11.0"
+serde = { version = "1.0.219", features = ["derive"] }
+env_logger = "0.11.8"
 rayon = "1.10.0"
-log = "0.4.22"
-rand = "0.9.0"
+log = "0.4.27"
+rand = "0.9.1"
 ldap3 = "0.11.5"
 url = "2.5.4"
 dlib-face-recognition = { version = "0.3.2", features = ["build-native", "embed-all"], optional = true }
 image_dlib = { package = "image", version = "0.24", optional = true}
 resvg = "0.45.0"
-random_word = { version = "0.5.0", features = ["en"] }
-tokio = { version = "1.38.1", features = ["full"] }
-serde_json = "1.0.135"
+tokio = { version = "1.45.1", features = ["full"] }
+serde_json = "1.0.140"
 azure_storage_blob = "0.1.0"
 azure_identity = "0.23.0"
 azure_core = "0.23.0"
-tempfile = "3.15.0"
+tempfile = "3.20.0"
+async-trait = "0.1.88"
+reqwest = "0.12.15"
+uuid = { version = "1.17.0", features = ["v4"] }
+quick-xml = { version = "0.37.5", features = ["serialize"] }
 
 [features]
 face_recognition = ["dep:dlib-face-recognition", "dep:image_dlib"]

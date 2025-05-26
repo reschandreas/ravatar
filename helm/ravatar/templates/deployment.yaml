@@ -73,6 +73,8 @@ spec:
               value: {{ .Values.ravatar.watchDirectories | default true | quote}}
             - name: SCAN_INTERVAL
               value: {{ .Values.ravatar.scanInterval | default 60 | quote}}
+            - name: STORAGE_ACCOUNT_URL
+              value: {{ .Values.ravatar.storageAccountUrl | default "" | quote }}
             {{ if .Values.ravatar.ldap.enabled }}
             - name: LDAP_URL
               value: {{ .Values.ravatar.ldap.url | quote }}
