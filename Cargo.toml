@@ -32,7 +32,7 @@ tempfile = "3.20.0"
 async-trait = "0.1.88"
 reqwest = "0.12.15"
 uuid = { version = "1.17.0", features = ["v4"] }
-quick-xml = { version = "0.37.5", features = ["serialize"] }
+quick-xml = { version = "0.38.0", features = ["serialize"] }
 
 [features]
 face_recognition = ["dep:dlib-face-recognition", "dep:image_dlib"]
