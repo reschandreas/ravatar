@@ -10,6 +10,9 @@ on:
       - main
     paths-ignore:
       - "README.md"
+      - .github/workflows/lint-test-helm.yaml
+      - .github/workflows/tests.yaml
+      - .github/workflows/release-helm.yaml
       - helm/
 
 env:
@@ -38,11 +41,20 @@ jobs:
           fetch-depth: 0
 
       - name: set up QEMU
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/setup-qemu-action@v4
 
       - name: set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: set build platforms
+        id: platforms
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && {{is_default_branch}} ]]; then
+            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+          else
+            echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
+          fi
       - name: log in to the Container registry
         uses: docker/login-action@v4
         with:
@@ -77,19 +89,20 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # set latest tag for default branch
             type=raw,value={{date 'YYYYMMDD-hhmmss' tz='Europe/Berlin'}}
             type=ref,event=pr
             type=sha
-            type=raw,value=${{steps.compute-tag.outputs.result}}
+            type=raw,value=${{ steps.compute-tag.outputs.result }}
             type=raw,value=nightly,enable={{is_default_branch}}
       - name: build and push
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.platforms.outputs.platforms }}
           push: true
-          build-args: featureflag=${{ matrix.features }}
+          build-args: |
+            featureflag=${{ matrix.features }}
+            CMAKE_POLICY_VERSION_MINIMUM=3.5
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

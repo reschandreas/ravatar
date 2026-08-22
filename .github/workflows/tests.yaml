@@ -10,6 +10,9 @@ on:
       - main
     paths-ignore:
       - "README.md"
+      - .github/workflows/build-and-push.yaml
+      - .github/workflows/release-helm.yaml
+      - .github/workflows/lint-test-helm.yaml
 
 jobs:
   tests:
