@@ -20,7 +20,8 @@ log = "0.4.27"
 rand = "0.9.1"
 ldap3 = "0.11.5"
 url = "2.5.4"
-dlib-face-recognition = { version = "0.3.2", features = ["build-native", "embed-all"], optional = true }
+dlib-face-recognition = { git = "https://github.com/reschandreas/dlib-face-recognition.git", branch = "main", features = ["build-native", "embed-fd-nn"], optional = true }
+#dlib-face-recognition = { version = "0.3.2", features = ["build-native", "embed-fd-nn"], optional = true }
 image_dlib = { package = "image", version = "0.24", optional = true}
 resvg = "0.45.0"
 tokio = { version = "1.45.1", features = ["full"] }

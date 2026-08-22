@@ -1,6 +1,16 @@
 name: lint and resources helm chart
 
-on: pull_request
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    tags:
+      - "v*.*.*"
+    branches:
+      - main
+    paths:
+      - helm/
+      - .github/workflows/lint-test-helm.yaml
 
 jobs:
   lint-test:
