@@ -2861,7 +2861,7 @@ dependencies = [
  "md-5",
  "notify",
  "quick-xml 0.41.0",
- "rand 0.9.5",
+ "rand 0.10.2",
  "rayon",
  "reqwest 0.12.28",
  "resvg",
