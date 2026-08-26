@@ -31,7 +31,7 @@ azure_identity = "0.23.0"
 azure_core = "0.23.0"
 tempfile = "3.20.0"
 async-trait = "0.1.88"
-reqwest = "0.12.15"
+reqwest = "0.13.0"
 uuid = { version = "1.17.0", features = ["v4"] }
 quick-xml = { version = "0.41.0", features = ["serialize"] }
 
